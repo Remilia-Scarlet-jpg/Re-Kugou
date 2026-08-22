@@ -104,3 +104,7 @@ html[data-electron] #dl-root {
   border-radius: 18px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .08);
 }
+/* Electron 原生窗口拖拽:手柄走 app-region(与系统边缘 resize 互斥,拖动不误触放大);
+   手柄内的控件(A−/A+/滑杆/✕)恢复可点(no-drag)。浏览器模式忽略(app-region 无效)。 */
+html[data-electron] #dl-drag { -webkit-app-region: drag; }
+html[data-electron] #dl-drag .dl-ctrls { -webkit-app-region: no-drag; }

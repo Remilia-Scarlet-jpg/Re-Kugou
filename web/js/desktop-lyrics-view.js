@@ -113,18 +113,24 @@ setInterval(() => {
 }, 1000);
 
 // ---------- 拖动(顶部手柄;控件点击不触发) ----------
+// Electron:顶部条走 -webkit-app-region:drag 原生窗口拖拽(app-region 与系统边缘
+// resize 命中互斥,拖动永不误触放大,Claude 记录坑:moveBy 拖拽时鼠标落进窗口
+// 边缘 6px 命中带会被 Windows 当作拉伸 →「拖拽时边框自动变大」);
+// 浏览器 popup 无 app-region,保留 moveBy 拖动(配合 open 的 resizable=no)。
 let dragStart = null;
-el.drag.addEventListener('pointerdown', (e) => {
-  if (e.target.closest('button, input')) return;
-  dragStart = { x: e.screenX, y: e.screenY };
-  el.drag.setPointerCapture(e.pointerId);
-});
-el.drag.addEventListener('pointermove', (e) => {
-  if (!dragStart) return;
-  window.moveBy(e.screenX - dragStart.x, e.screenY - dragStart.y);
-  dragStart = { x: e.screenX, y: e.screenY };
-});
-el.drag.addEventListener('pointerup', () => { dragStart = null; });
+if (!window.__APP_CONFIG__?.electron) {
+  el.drag.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button, input')) return;
+    dragStart = { x: e.screenX, y: e.screenY };
+    el.drag.setPointerCapture(e.pointerId);
+  });
+  el.drag.addEventListener('pointermove', (e) => {
+    if (!dragStart) return;
+    window.moveBy(e.screenX - dragStart.x, e.screenY - dragStart.y);
+    dragStart = { x: e.screenX, y: e.screenY };
+  });
+  el.drag.addEventListener('pointerup', () => { dragStart = null; });
+}
 
 // ---------- 控件(本地立即生效 + 回写绝对目标值;主窗回推回声收敛) ----------
 const curFont = () => {

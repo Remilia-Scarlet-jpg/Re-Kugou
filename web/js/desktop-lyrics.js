@@ -86,8 +86,9 @@ function openDesktopLyrics() {
   const x = cfg?.x ?? Math.max(0, window.screenX + window.outerWidth - w - 40);
   const y = cfg?.y ?? Math.max(0, window.screenY + 60);
   ensureChannel();
-  // 固定窗口名防多开;popup=yes 在 Chrome 隐藏工具栏(浏览器无真置顶,接受)
-  win = window.open('/desktop-lyrics.html', WIN_NAME, `popup=yes,width=${w},height=${h},left=${x},top=${y}`);
+  // 固定窗口名防多开;popup=yes 在 Chrome 隐藏工具栏(浏览器无真置顶,接受);
+  // resizable=no 防拖动小窗时鼠标落进窗口边缘被系统当作拉伸(「拖拽时边框自动变大」坑)
+  win = window.open('/desktop-lyrics.html', WIN_NAME, `popup=yes,resizable=no,width=${w},height=${h},left=${x},top=${y}`);
   if (!win) {
     toast('桌面歌词小窗被拦截,请允许本站弹窗', true);
     window.__APP_DESKTOP_LYRICS = '0';
