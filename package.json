@@ -1,0 +1,74 @@
+{
+  "name": "star-music",
+  "productName": "REKG",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RE:KG - 可视化音乐播放器(酷狗数据源,仅供学习交流)",
+  "author": "vmp",
+  "main": "electron/main.js",
+  "scripts": {
+    "gen:icon": "node scripts/gen_icon.js",
+    "stage": "node scripts/stage-app.js",
+    "start:electron": "electron .",
+    "electron:debug": "set ELECTRON_DISABLE_SECURITY_WARNINGS=1&& electron . --remote-debugging-port=9229",
+    "dist": "node scripts/stage-app.js && electron-builder --win",
+    "test": "node scripts/cdp_test.js"
+  },
+  "devDependencies": {
+    "electron": "43.4.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.vmp.starmusic",
+    "productName": "REKG",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "npmRebuild": false,
+    "asar": true,
+    "files": [
+      "electron/**/*",
+      "server.js",
+      "web/**/*",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "build/staging",
+        "to": "staging",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "REKG",
+      "installerLanguages": [
+        "zh_CN"
+      ],
+      "language": "2052",
+      "unicode": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName} Setup ${version}.${ext}"
+    }
+  }
+}

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- CSP:connect-src data:/blob: 是壁纸 dataURL fetch 与本地音乐 blob 封面回读的硬依赖,勿删;style 内联豁免来自 fx/桌词动态样式 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; media-src http: https: blob:; connect-src 'self' data: blob: http://localhost:3000 http://127.0.0.1:3000; object-src 'none'; base-uri 'self'">
+  <title>RE:KG</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23239BFF'/><text x='50' y='72' font-size='56' font-weight='700' fill='white' text-anchor='middle' font-family='Arial,sans-serif'>RE</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 壁纸层:透明 WebGL canvas 之下(DOM 顺序保证 canvas 在其上) -->
+  <div id="wallpaper-layer" aria-hidden="true">
+    <img id="wallpaper-img" alt="" hidden>
+    <video id="wallpaper-video" muted loop playsinline preload="metadata" hidden></video>
+  </div>
+  <!-- 粒子星空背景 -->
+  <canvas id="starfield"></canvas>
+  <!-- 唯一持久音频元素:crossorigin 必须在设 src 之前,供 Web Audio 频谱分析 -->
+  <audio id="audio" crossorigin="anonymous" preload="none"></audio>
+
+  <div class="app">
+    <button class="float-logo" id="float-logo" title="打开音乐面板">RE:KG</button>
+    <button id="login-btn" class="login-btn" title="登录酷狗">登录</button>
+
+    <aside class="right-drawer" id="right-drawer">
+      <div class="drawer-head">
+        <span class="drawer-title">RE:KG</span>
+        <button id="drawer-close" class="chip" title="关闭">✕</button>
+      </div>
+      <div class="drawer-search">
+        <div class="search-type">
+          <button data-type="song" class="st-btn">歌曲</button>
+          <button data-type="album" class="st-btn active">专辑</button>
+          <button data-type="playlist" class="st-btn">歌单</button>
+        </div>
+        <input id="search-input" type="text" placeholder="搜索专辑…" spellcheck="false">
+        <button id="search-btn" class="btn-accent">搜索</button>
+        <div class="hot-chips" id="hot-chips"></div>
+      </div>
+      <div class="drawer-tabs">
+        <button class="drawer-tab-btn active" data-tab="browse">浏览</button>
+        <button class="drawer-tab-btn" data-tab="queue">队列</button>
+        <button class="drawer-tab-btn" data-tab="visual">视觉</button>
+      </div>
+      <div class="drawer-panes">
+        <div class="drawer-pane" id="browse-pane">
+          <nav class="side-nav">
+            <button data-view="recommend" class="nav-item active"><span class="nav-ico">✨</span>推荐</button>
+            <button data-view="rank" class="nav-item"><span class="nav-ico">🏆</span>榜单</button>
+            <button data-view="album" class="nav-item"><span class="nav-ico">💿</span>专辑</button>
+            <button data-view="my" class="nav-item"><span class="nav-ico">📁</span>我的歌单</button>
+          </nav>
+          <main class="main" id="main"></main>
+          <div class="side-tip">数据来自本地酷狗 API<br>仅供学习交流</div>
+        </div>
+        <div class="drawer-pane" id="queue-pane" hidden>
+          <div class="queue-view" id="queue-view"></div>
+        </div>
+        <div class="drawer-pane" id="visual-pane" hidden></div>
+      </div>
+    </aside>
+
+    <button class="drawer-tab" id="drawer-tab" title="打开面板">⌕</button>
+
+    <footer class="playerbar">
+      <div class="np">
+        <div class="np-cover-wrap" id="np-cover-wrap">
+          <img id="np-cover" class="np-cover" alt="封面" src="">
+        </div>
+        <div class="np-meta">
+          <div class="np-name" id="np-name">未在播放</div>
+          <div class="np-artist" id="np-artist">从右侧挑选一首歌开始音乐之旅</div>
+        </div>
+        <button id="lyric-toggle" class="chip" title="歌词">词</button>
+        <button id="desktop-lyrics-btn" class="chip" title="桌面歌词(独立小窗)">桌词</button>
+      </div>
+      <div class="controls">
+        <div class="ctrl-row">
+          <button id="btn-prev" class="ctrl" title="上一首">⏮</button>
+          <button id="btn-play" class="ctrl ctrl-play" title="播放/暂停">▶</button>
+          <button id="btn-next" class="ctrl" title="下一首">⏭</button>
+        </div>
+        <div class="progress">
+          <span id="time-cur" class="time">00:00</span>
+          <input id="seek" type="range" min="0" max="100" step="0.1" value="0" disabled>
+          <span id="time-dur" class="time">--:--</span>
+        </div>
+      </div>
+      <div class="volume">
+        <button id="btn-mute" class="chip" title="静音">🔊</button>
+        <input id="volume" type="range" min="0" max="100" value="80">
+        <span id="volume-num" class="time">80%</span>
+      </div>
+    </footer>
+
+    <aside class="lyric-drawer" id="lyric-drawer">
+      <div class="lyric-head">
+        <div class="lyric-head-left">
+          <img id="lyric-cover" class="lyric-cover" alt="封面" src="">
+          <span id="lyric-title">歌词</span>
+        </div>
+        <button id="lyric-close" class="chip">✕</button>
+      </div>
+      <div class="lyric-body" id="lyric-body"></div>
+    </aside>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+
+  <!-- 扫码登录弹窗 -->
+  <div class="login-modal" id="login-modal">
+    <div class="login-box">
+      <div class="login-head">
+        <span>扫码登录酷狗</span>
+        <button id="login-close" class="chip">✕</button>
+      </div>
+      <img id="qr-img" class="qr-img" alt="登录二维码">
+      <div class="qr-status" id="qr-status">正在获取二维码…</div>
+      <div class="login-tip">登录后展示你的 VIP 状态;VIP 歌曲可播放,音质最高 320k</div>
+    </div>
+  </div>
+
+  <script src="js/vendor/three.min.js"></script>
+  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/electron-shell.js"></script>
+</body>
+</html>
