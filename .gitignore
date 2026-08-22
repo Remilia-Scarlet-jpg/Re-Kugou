@@ -1,0 +1,53 @@
+# ============================================================
+# RE:KG 项目 .gitignore — 只允许必要文件上传
+# 目标仓库: https://github.com/Remilia-Scarlet-jpg/Re-Kugou
+# ============================================================
+
+# ---------- 依赖(体积大,一律不传;lock 文件保留 → 可复现安装) ----------
+node_modules/
+
+# ---------- 构建产物 / 打包输出 ----------
+release/                 # electron-builder 输出(安装包/win-unpacked/二次拷贝)
+build/staging/           # stage-app.js 生成的 api 运行时闭包(含 node_modules 拷贝)
+bin/                     # api pkg 二进制输出
+dist/
+
+# ---------- 敏感信息:任何 .env(仅保留 .env.example 模板) ----------
+.env
+.env.*
+!.env.example
+
+# ---------- 日志与调试残留 ----------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---------- 系统 / 编辑器 ----------
+.DS_Store
+Thumbs.db
+Desktop.ini
+desktop.ini
+.vscode/
+.idea/
+*.suo
+*.user
+
+# ---------- 测试 / 覆盖率缓存 ----------
+coverage/
+.cache/
+
+# ---------- 嵌套仓库元数据(必须处理,见下方说明) ----------
+# api/ 是上游 KuGouMusicApi 的 clone(内含 .git)。Git 会把含 .git 的目录当作
+# "嵌入仓库",只提交一个 gitlink 指针而不会上传 api/ 源码内容。
+# 上传前请先执行(不影响运行,源码全部保留):
+#   Remove-Item -Recurse -Force api\.git
+# api/.git/ 条目仅为双保险;规范上 .git 目录本身不会被跟踪。
+api/.git/
+
+# ---------- 文档与安全报告(公开仓库不需要) ----------
+bug.md                   # 本地安全审查报告:含漏洞细节,勿公开上传
+api/docs/                # 上游接口文档(运行不需要)
+api/interface.d.ts       # 上游类型声明(本项目无 TS 编译,不需要)
