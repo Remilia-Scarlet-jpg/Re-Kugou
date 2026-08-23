@@ -70,7 +70,7 @@ img { -webkit-user-drag: none; }
   height: 100vh;
   pointer-events: none; /* 让点击穿透到画布的空区域无碍,子元素各自恢复 */
 }
-.float-logo, .login-btn, .right-drawer, .drawer-tab, .playerbar, .lyric-drawer { pointer-events: auto; }
+.float-logo, .right-drawer, .drawer-tab, .playerbar, .lyric-drawer { pointer-events: auto; }
 
 /* ============ 悬浮按钮 ============ */
 .float-logo {
@@ -286,6 +286,35 @@ img { -webkit-user-drag: none; }
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+/* 抽屉用户登录大标题(登录入口唯一处;未登录提示 / 已登录显示 VIP 徽章) */
+.drawer-user {
+  margin: 0 14px 4px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  user-select: none;
+}
+.drawer-user:hover { background: rgba(0, 245, 212, 0.10); }
+.drawer-user-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.drawer-user-sub {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .drawer-tabs {
   display: flex;
@@ -691,6 +720,8 @@ img { -webkit-user-drag: none; }
   box-shadow: 0 0 18px rgba(0, 245, 212, 0.45);
 }
 .ctrl-play:hover { filter: brightness(1.15); color: #fff; }
+/* 播放模式钮:非顺序循环模式(单曲循环/随机)点亮薄荷色,无边框铁律不变 */
+.ctrl-mode.active { color: var(--accent-1); }
 
 .progress { display: flex; align-items: center; gap: 10px; }
 .time { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; min-width: 36px; }
@@ -856,32 +887,7 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   .lyric-drawer { width: min(380px, calc(100vw - 24px)); bottom: 108px; }
 }
 
-/* ============ 登录 / VIP(右上悬浮) ============ */
-.login-btn {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  z-index: 3;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 16px;
-  background: linear-gradient(112deg, rgba(62, 66, 70, 0.28), rgba(20, 23, 28, 0.24) 48%, rgba(8, 12, 14, 0.28));
-  backdrop-filter: blur(12px) saturate(1.25);
-  -webkit-backdrop-filter: blur(12px) saturate(1.25);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  color: var(--text-2, #aab);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.login-btn:hover { color: #fff; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35), 0 0 24px rgba(0, 245, 212, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.16); }
-.login-btn.logged {
-  background: linear-gradient(90deg, rgba(244, 210, 138, 0.20), rgba(154, 111, 44, 0.14));
-  color: var(--gold);
-  font-weight: 600;
-}
-.login-btn.logged[data-arm='1'] { color: var(--danger); background: rgba(255, 107, 157, 0.18); }
-
+/* ============ 登录弹窗(入口在抽屉用户大标题) ============ */
 .login-modal {
   position: fixed;
   inset: 0;
@@ -1003,7 +1009,7 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   position: fixed;
   top: 0; left: 0; right: 0;
   height: 32px;
-  z-index: 2; /* 高于 .app(z1)/canvas,低于 .float-logo/.login-btn(z3)→ 两者照常可点 */
+  z-index: 2; /* 高于 .app(z1)/canvas,低于 .float-logo(z3)→ 照常可点 */
   -webkit-app-region: drag;
   pointer-events: auto;
   display: flex;
@@ -1036,5 +1042,4 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
 }
 .win-btn:hover { background: rgba(255, 255, 255, .10); color: #fff; }
 #win-close:hover { background: rgba(255, 107, 157, .28); color: #fff; }
-body[data-electron] .login-btn { top: 44px; } /* 右上角让位给窗口控件(仅 Electron 模式) */
 

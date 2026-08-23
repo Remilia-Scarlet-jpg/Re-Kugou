@@ -5,7 +5,7 @@
  * 双击拖拽条最大化/还原;标记 window.__APP_ELECTRON_SHELL='1'(测试约定)。
  */
 if (window.__APP_CONFIG__?.electron && window.vmpShell) {
-  document.body.dataset.electron = '1'; // 解锁 style.css 的 body[data-electron] 规则(login-btn 下移等)
+  document.body.dataset.electron = '1'; // Electron 模式标记(窗口控件样式分流;登录按钮已移入抽屉,无让位规则)
 
   const bar = document.createElement('div');
   bar.id = 'win-bar';

@@ -25,6 +25,7 @@ const el = {
   btnPlay: $('btn-play'),
   btnPrev: $('btn-prev'),
   btnNext: $('btn-next'),
+  btnMode: $('btn-mode'),
   seek: $('seek'),
   timeCur: $('time-cur'),
   timeDur: $('time-dur'),
@@ -38,7 +39,6 @@ const el = {
   lyricBody: $('lyric-body'),
   lyricClose: $('lyric-close'),
   toasts: $('toasts'),
-  loginBtn: $('login-btn'),
   loginModal: $('login-modal'),
   loginClose: $('login-close'),
   qrImg: $('qr-img'),
@@ -47,6 +47,9 @@ const el = {
   drawerTab: $('drawer-tab'),
   drawerClose: $('drawer-close'),
   floatLogo: $('float-logo'),
+  drawerUser: $('drawer-user'),
+  drawerUserTitle: $('drawer-user-title'),
+  drawerUserSub: $('drawer-user-sub'),
   browsePane: $('browse-pane'),
   queuePane: $('queue-pane'),
   queueView: $('queue-view'),
@@ -822,49 +825,62 @@ function formatVipLabel(d) {
   return label;
 }
 
-/** 顶栏登录按钮状态:未登录「登录」,已登录显示 VIP 徽章(再点一次确认退出) */
+/** 登录态(入口 = 抽屉用户大标题;主页登录按钮已移除):未登录提示,已登录显示 VIP 徽章 */
 async function refreshLoginState() {
-  const btn = el.loginBtn;
-  // 未登录时直接显示登录按钮,不发 VIP 请求(未登录会 502 噪音);token 已 HttpOnly,改读 localStorage
   if (!api.hasLogin()) {
-    btn.textContent = '登录';
-    btn.classList.remove('logged');
-    btn.dataset.logged = '0';
-    btn.dataset.arm = '';
+    updateDrawerUser(null);
     return;
   }
-  const vip = await api.getUserVip();
+  // 已登录:VIP 详情失败(上游 502/风控)不得回退成「未登录」,显示「已登录」保留退出能力
+  let vip = null;
+  try { vip = await api.getUserVip(); } catch { vip = null; }
+  updateDrawerUser(vip);
+}
+
+/** 抽屉用户大标题:未登录提示登录;已登录显示 VIP 徽章/已登录 */
+function updateDrawerUser(vip) {
+  const wrap = el.drawerUser;
+  wrap.dataset.arm = '';
+  if (!api.hasLogin()) {
+    wrap.dataset.logged = '0';
+    el.drawerUserTitle.textContent = '未登录';
+    el.drawerUserSub.textContent = '点击登录酷狗账号 · VIP 歌曲可听';
+    return;
+  }
+  wrap.dataset.logged = '1';
+  let uid = '';
+  try { uid = JSON.parse(localStorage.getItem('vmp.login.v1') || '{}')?.userid || ''; } catch { /* 忽略 */ }
+  const sub = uid ? `UID ${uid} · 点击徽章可退出登录` : '点击徽章可退出登录';
   if (vip) {
-    btn.textContent = formatVipLabel(vip);
-    btn.classList.add('logged');
-    btn.dataset.logged = '1';
-    btn.dataset.arm = '';
+    el.drawerUserTitle.textContent = formatVipLabel(vip);
+    el.drawerUserSub.textContent = sub;
   } else {
-    btn.textContent = '登录';
-    btn.classList.remove('logged');
-    btn.dataset.logged = '0';
+    el.drawerUserTitle.textContent = '已登录';
+    el.drawerUserSub.textContent = sub;
   }
 }
 
-async function onLoginBtnClick() {
-  if (el.loginBtn.dataset.logged !== '1') {
+async function onDrawerUserClick() {
+  if (el.drawerUser.dataset.logged !== '1') {
     openLoginModal();
     return;
   }
   // 已登录:先提示,3 秒内再点一次才退出,防误触
-  if (el.loginBtn.dataset.arm !== '1') {
-    el.loginBtn.dataset.arm = '1';
-    el.loginBtn.textContent = '再点一次退出';
-    toast('再点一次登录徽章确认退出');
+  if (el.drawerUser.dataset.arm !== '1') {
+    el.drawerUser.dataset.arm = '1';
+    const orig = el.drawerUserTitle.textContent;
+    el.drawerUserTitle.textContent = '再点一次退出';
+    toast('再点一次用户徽章确认退出');
     setTimeout(() => {
-      if (el.loginBtn.dataset.arm === '1') {
-        el.loginBtn.dataset.arm = '';
+      if (el.drawerUser.dataset.arm === '1') {
+        el.drawerUser.dataset.arm = '';
+        el.drawerUserTitle.textContent = orig;
         refreshLoginState();
       }
     }, 3000);
     return;
   }
-  el.loginBtn.dataset.arm = '';
+  el.drawerUser.dataset.arm = '';
   await api.logoutKugou();
   refreshLoginState();
   toast('已退出登录');
@@ -933,6 +949,20 @@ function updateVolumeUI() {
   el.volume.style.setProperty('--fill', `${v}%`);
   el.volumeNum.textContent = (player.muted ? 0 : v) + '%';
   el.btnMute.textContent = player.muted ? '🔇' : '🔊';
+}
+
+/** 播放模式按钮:图标 + 提示 + 高亮(非顺序循环模式点亮薄荷色);文案集中本文件 */
+const MODE_UI = {
+  order: { icon: '🔁', label: '顺序循环' },
+  'loop-one': { icon: '🔂', label: '单曲循环' },
+  shuffle: { icon: '🔀', label: '随机播放' },
+};
+
+function updateModeBtn(mode) {
+  const m = MODE_UI[mode] || MODE_UI.order;
+  el.btnMode.textContent = m.icon;
+  el.btnMode.title = `播放模式:${m.label} · 点击切换`;
+  el.btnMode.classList.toggle('active', mode !== 'order');
 }
 
 function onSongChange({ song }) {
@@ -1035,6 +1065,7 @@ export function initUI() {
   el.btnPlay.addEventListener('click', () => player.toggle());
   el.btnNext.addEventListener('click', () => player.next());
   el.btnPrev.addEventListener('click', () => player.prev());
+  el.btnMode.addEventListener('click', () => player.cyclePlayMode());
   el.seek.addEventListener('input', () => player.seek(Number(el.seek.value)));
   el.volume.addEventListener('input', () => player.setVolume(Number(el.volume.value) / 100));
   el.btnMute.addEventListener('click', () => player.setMuted(!player.muted));
@@ -1064,14 +1095,16 @@ export function initUI() {
   player.on('songchange', onSongChange);
   player.on('toast', (msg) => toast(msg, true));
   player.on('volumechange', updateVolumeUI);
+  player.on('playmodechange', updateModeBtn);
+  updateModeBtn(player.getPlayMode()); // 初始图标(含 localStorage 恢复的模式)
   player.on('queuechange', ({ index }) => {
     const cur = player.getCurrent();
     if (cur) markPlayingRows(songKey(cur));
     if (activeTab === 'queue') renderQueue();
   });
 
-  // 登录 / VIP
-  el.loginBtn.addEventListener('click', onLoginBtnClick);
+  // 登录 / VIP(入口 = 抽屉用户大标题;主页登录按钮已移除)
+  el.drawerUser.addEventListener('click', onDrawerUserClick);
   el.loginClose.addEventListener('click', closeLoginModal);
   el.loginModal.addEventListener('click', (e) => {
     if (e.target === el.loginModal) closeLoginModal();

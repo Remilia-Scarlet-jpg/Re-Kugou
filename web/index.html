@@ -22,12 +22,15 @@
 
   <div class="app">
     <button class="float-logo" id="float-logo" title="打开音乐面板">RE:KG</button>
-    <button id="login-btn" class="login-btn" title="登录酷狗">登录</button>
 
     <aside class="right-drawer" id="right-drawer">
       <div class="drawer-head">
         <span class="drawer-title">RE:KG</span>
         <button id="drawer-close" class="chip" title="关闭">✕</button>
+      </div>
+      <div class="drawer-user" id="drawer-user" title="登录状态">
+        <div class="drawer-user-title" id="drawer-user-title">未登录</div>
+        <div class="drawer-user-sub" id="drawer-user-sub">点击登录酷狗账号</div>
       </div>
       <div class="drawer-search">
         <div class="search-type">
@@ -81,6 +84,7 @@
           <button id="btn-prev" class="ctrl" title="上一首">⏮</button>
           <button id="btn-play" class="ctrl ctrl-play" title="播放/暂停">▶</button>
           <button id="btn-next" class="ctrl" title="下一首">⏭</button>
+          <button id="btn-mode" class="ctrl ctrl-mode" title="播放模式:顺序循环 · 点击切换">🔁</button>
         </div>
         <div class="progress">
           <span id="time-cur" class="time">00:00</span>

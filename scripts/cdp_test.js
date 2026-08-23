@@ -6,7 +6,7 @@
  *
  * 覆盖:推荐页渲染 → 点歌播放(URL 解析 + Web Audio 管线)→ 空格暂停/恢复 →
  *      专辑搜索→专辑歌曲→歌词高亮+seek → 榜单两级 → 歌单两级可播(仅前 10 首)→
- *      我的歌单粘贴链接添加/持久化/移除 → 刷新后队列恢复 → 登录弹窗 S10 →
+ *      我的歌单粘贴链接添加/持久化/移除 → 刷新后队列恢复 → 登录入口(抽屉用户大标题)S10 →
  *      音乐壁纸布局 S11 → 视觉 DIY 控制台 S12a/b → 电影运镜 S12d →
  *      壁纸模式 S12e → 桌面歌词小窗 S12c/f →
  *      视频壁纸大文件 S14(1000MB 上限判定/配额预检)→
@@ -18,6 +18,7 @@
  *      本地歌单 S22(建单·点播·移除 GC)→ 桌词三修复 S23(墙钟同步·字号连点·滑杆守卫·尺寸钳制)→
  *      安全断言 S24(CORS 白名单·禁用路由 404·SSRF 拦截·安全头·Cookie 属性·CSP meta)→
  *      旧登录态迁移 S25(legacy cookie → localStorage + /auth/logout)→
+ *      播放模式 S26(btn-mode 三态·vmp.playmode.v1 持久化·ended 切歌行为)→
  *      全程无未捕获异常。每步失败互不阻断。
  */
 const { spawn } = require('node:child_process');
@@ -849,9 +850,10 @@ async function newTarget() {
       await ev("(async()=>{const {setFx}=await import('/js/fx.js'); const s=window.__fx0; setFx('dlFontSize', s.dlFontSize); setFx('dlOpacity', s.dlOpacity); return true;})()");
     });
 
-    // S10 登录界面:弹窗打开 → 二维码渲染 → 轮询发出 → 关闭(实际扫码需人工)
+    // S10 登录界面:入口 = 抽屉用户大标题(主页 login-btn 已移除)→ 弹窗打开 → 二维码渲染 → 轮询发出 → 关闭
     await step('S10', async () => {
-      await ev("document.getElementById('login-btn').click()");
+      check('S10 登录:主页登录按钮已移除', await ev("!document.getElementById('login-btn')") === true);
+      await ev("document.getElementById('drawer-user').click()");
       const modalOpen = await poll("document.getElementById('login-modal').classList.contains('open')", 5000);
       check('S10 登录:弹窗打开', modalOpen);
       if (!modalOpen) return;
@@ -866,6 +868,8 @@ async function newTarget() {
       check('S10 登录:扫码状态轮询已发出', polls >= 1, `${polls} 次`);
       await ev("document.getElementById('login-close').click()");
       check('S10 登录:关闭弹窗', await poll("!document.getElementById('login-modal').classList.contains('open')", 3000));
+      // 抽屉用户大标题:未登录文案
+      check('S10 用户大标题:未登录文案', await ev("document.getElementById('drawer-user-title').textContent") === '未登录');
     });
 
     // S11 音乐壁纸布局:抽屉开关四条路径 + 队列标签页切歌高亮 + 3D 渲染模式
@@ -1335,6 +1339,59 @@ async function newTarget() {
       const cleared = await poll("!document.cookie.includes('token=')", 8000);
       check('S25 迁移:旧 cookie 已清(/auth/logout)', cleared, await ev('document.cookie'));
       await ev("localStorage.removeItem('vmp.login.v1')"); // 恢复未登录态
+    });
+
+    // S26 播放模式:播放条 btn-mode 三态(顺序循环🔁/单曲循环🔂/随机播放🔀)+
+    // 持久化(vmp.playmode.v1)+ ended 实际切歌行为(本地双曲队列,不依赖网络)
+    await step('S26', async () => {
+      // 重复运行安全:清持久键 + 内存态归位 order(构造时可能从上次运行残留的键恢复了非默认模式)
+      await ev("localStorage.removeItem('vmp.playmode.v1')");
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.clear(); player.setPlayMode('order'); return true;})()");
+      check('S26 模式:默认顺序循环(🔁)', (await ev("window.__APP_PLAY_MODE")) === 'order'
+        && (await ev("document.getElementById('btn-mode').textContent")) === '🔁',
+        String(await ev("window.__APP_PLAY_MODE")));
+      // 本地双曲队列(A 30s / B 10s):ended 行为断言不依赖网络
+      await mkWavFixtures();
+      const q = await ev(`(async()=>{
+        const {importFiles}=await import('/js/local-music.js');
+        const r=await importFiles([window.__wavA, window.__wavB]);
+        const {player}=await import('/js/player.js');
+        player.setQueue(r.songs, 0);
+        return r.songs.map((s)=>s.name);
+      })()`);
+      check('S26 队列:本地双曲就绪(A+B)', Array.isArray(q) && q.length === 2, JSON.stringify(q));
+      if (!Array.isArray(q) || q.length !== 2) return;
+      await poll("document.getElementById('audio').src.startsWith('blob:') && !document.getElementById('audio').paused", 15000);
+      // 三态循环切换:图标 / 标记 / 持久化 / 高亮 四联动
+      await ev("document.getElementById('btn-mode').click()");
+      check('S26 切换:→ 单曲循环(🔂 + 标记)', await poll("window.__APP_PLAY_MODE === 'loop-one' && document.getElementById('btn-mode').textContent === '🔂'", 3000),
+        String(await ev("window.__APP_PLAY_MODE")));
+      check('S26 持久化:vmp.playmode.v1=loop-one', (await ev("localStorage.getItem('vmp.playmode.v1')")) === 'loop-one');
+      check('S26 高亮:非顺序模式点亮薄荷色', await ev("document.getElementById('btn-mode').classList.contains('active')") === true);
+      await ev("document.getElementById('btn-mode').click()");
+      check('S26 切换:→ 随机播放(🔀)', await poll("window.__APP_PLAY_MODE === 'shuffle' && document.getElementById('btn-mode').textContent === '🔀'", 3000));
+      await ev("document.getElementById('btn-mode').click()");
+      check('S26 切换:→ 顺序循环(🔁 + 高亮熄灭)', await poll("window.__APP_PLAY_MODE === 'order' && document.getElementById('btn-mode').textContent === '🔁'", 3000)
+        && (await ev("document.getElementById('btn-mode').classList.contains('active')")) === false);
+      // ended 行为:单曲循环 → 重播当前曲(进度归零继续播)
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.setPlayMode('loop-one'); const a=document.getElementById('audio'); a.currentTime=a.duration-0.15; return true;})()");
+      check('S26 单曲循环:ended 重播当前曲(进度归零)', await poll(
+        "(()=>{const a=document.getElementById('audio');return !a.paused && a.currentTime < 5 && document.getElementById('np-name').textContent==='测试静音A';})()", 15000),
+        await ev("document.getElementById('np-name').textContent"));
+      // ended 行为:随机播放 → 双曲队列必然切到另一首(B)
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.setPlayMode('shuffle'); const a=document.getElementById('audio'); a.currentTime=a.duration-0.15; return true;})()");
+      check('S26 随机播放:ended 切到另一首(B)', await poll(
+        "(()=>{const a=document.getElementById('audio');return !a.paused && document.getElementById('np-name').textContent==='测试静音B';})()", 15000),
+        await ev("document.getElementById('np-name').textContent"));
+      // ended 行为:顺序循环 → 队尾(B)循环回队首(A)
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.setPlayMode('order'); const a=document.getElementById('audio'); a.currentTime=a.duration-0.15; return true;})()");
+      check('S26 顺序循环:ended 队尾循环回队首(A)', await poll(
+        "(()=>{const a=document.getElementById('audio');return !a.paused && document.getElementById('np-name').textContent==='测试静音A';})()", 15000),
+        await ev("document.getElementById('np-name').textContent"));
+      // 收尾:归位 order + 清队列/本地库/持久键,不污染后续 S9 审计与可重复性
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.setPlayMode('order'); player.clear(); return true;})()");
+      await ev("window.__APP_LOCAL_API.reset()");
+      await ev("localStorage.removeItem('vmp.playmode.v1')");
     });
 
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)

@@ -14,6 +14,8 @@ import { clamp } from './utils.js';
 
 const URL_CACHE_TTL = 10 * 60 * 1000; // 解析结果缓存 10 分钟
 const MAX_CONSECUTIVE_FAILS = 3;      // 连续失败达到该值停止自动跳下一首
+const PLAY_MODES = ['order', 'loop-one', 'shuffle']; // 顺序循环 / 单曲循环 / 随机播放
+const PLAY_MODE_KEY = 'vmp.playmode.v1'; // 播放模式持久化键(store.js 同款 vmp.<name>.v1 约定)
 
 class Player {
   constructor() {
@@ -30,7 +32,19 @@ class Player {
     this._analyser = null;
     this._listeners = {};
 
+    this._loadPlayMode();
     this._bindAudioEvents();
+  }
+
+  /** 从 localStorage 恢复播放模式(非法/损坏值回退顺序循环) */
+  _loadPlayMode() {
+    let mode = 'order';
+    try {
+      const saved = localStorage.getItem(PLAY_MODE_KEY);
+      if (PLAY_MODES.includes(saved)) mode = saved;
+    } catch { /* 存储不可用时默认顺序循环 */ }
+    this.playMode = mode;
+    window.__APP_PLAY_MODE = mode;
   }
 
   // ---------- 事件订阅(极简 emitter) ----------
@@ -142,7 +156,16 @@ class Player {
   next() {
     if (!this.queue.length) return;
     if (this._fails >= MAX_CONSECUTIVE_FAILS) return; // 连续失败,不再自动跳转
-    this._playIndex((this.index + 1) % this.queue.length);
+    const len = this.queue.length;
+    let i;
+    if (this.playMode === 'loop-one') {
+      i = this.index; // 单曲循环:重播当前曲(失败保护由 _fails 兜底)
+    } else if (this.playMode === 'shuffle' && len > 1) {
+      do { i = Math.floor(Math.random() * len); } while (i === this.index); // 随机且不与当前重复
+    } else {
+      i = (this.index + 1) % len; // 顺序循环(队尾回队首)
+    }
+    this._playIndex(i);
   }
 
   prev() {
@@ -153,6 +176,25 @@ class Player {
       return;
     }
     this._playIndex((this.index - 1 + this.queue.length) % this.queue.length);
+  }
+
+  // ---------- 播放模式:顺序循环 / 单曲循环 / 随机播放 ----------
+  // 只影响 next() 的选曲,不触碰音频链与状态机;next() 由 ended 事件与 _failSong 自动续播调用
+  getPlayMode() {
+    return this.playMode;
+  }
+
+  setPlayMode(mode) {
+    if (!PLAY_MODES.includes(mode)) return;
+    if (this.playMode === mode) return;
+    this.playMode = mode;
+    try { localStorage.setItem(PLAY_MODE_KEY, mode); } catch { /* 存储不可用时静默降级 */ }
+    window.__APP_PLAY_MODE = mode;
+    this._emit('playmodechange', mode);
+  }
+
+  cyclePlayMode() {
+    this.setPlayMode(PLAY_MODES[(PLAY_MODES.indexOf(this.playMode) + 1) % PLAY_MODES.length]);
   }
 
   seek(sec) {
@@ -214,6 +256,7 @@ class Player {
 
   /** 本地歌播放:IDB 懒取 blob → objectURL 直连;加载失败自愈(清元数据)后走失败流程 */
   async _playLocal(song, token) {
+    const oldUrl = this._localUrl;
     let url;
     try {
       url = await localMusic.getPlayUrl(song.localId);
@@ -225,9 +268,10 @@ class Player {
     }
     if (token !== this._token) return;
     this._pendingUrls = null; // 防 _onAudioError 误走换源逻辑
-    this._revokeLocalSrc();
     this._setState('loading');
-    this.audio.src = url;
+    this.audio.src = url; // 先设新 src
+    // 再 revoke 旧(local-music.js 约定);同曲重播(单曲循环/单曲队列)复用同一 URL,不得 revoke
+    if (oldUrl && oldUrl !== url) localMusic.releasePlayUrl(oldUrl);
     this._localUrl = url;
 
     // loadedmetadata 补时长(本地歌 song.duration 恒 null,getDuration 就绪前显示 --:--)
