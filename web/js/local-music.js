@@ -179,11 +179,16 @@ export async function getCoverUrl(localId) {
 }
 
 // ---------- 歌单 ----------
+const CUSTOM_COVER_PREFIX = 'plc-'; // 自定义歌单封面在 cover store 的 key 前缀
+
 export async function createPlaylist(name, songIds, songs) {
   const id = 'lp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
   const pl = {
     id, name,
     songIds: [...songIds],
+    onlineSongs: [], // 在线歌内嵌条目(本地歌单可收录推荐/搜索的歌)
+    img: '',         // 歌单级封面 URL(选在线歌封面时写此)
+    customCover: false, // true = 封面来自上传图片(IDB plc-<id>)
     coverId: (songs || getSongs(songIds)).find((s) => s?.cover)?.localId || null,
     createdAt: Date.now(),
   };
@@ -196,9 +201,86 @@ export function getPlaylists() {
   return [...state.playlists];
 }
 
-/** 删歌单定义 + GC 孤儿:未被任何剩余歌单引用、且不在 protectedIds 中的歌 → 删 blob/元数据 */
+/** 歌单曲目(本地歌 + 在线歌混合;本地歌 lazy 展开,在线歌内嵌元数据) */
+export function getPlaylistSongs(pl) {
+  const locals = getSongs(pl?.songIds || []);
+  const onlines = (pl?.onlineSongs || []).map((s) => ({
+    hash: s.hash || '', hash320: s.hash320 || '', localId: '',
+    name: s.name || '未知歌曲', artists: s.artists || '未知歌手',
+    img: s.img || '', duration: s.duration, albumId: s.albumId || '', local: false,
+  }));
+  return [...locals, ...onlines];
+}
+
+/** 把一首歌加入本地歌单:本地歌 → songIds 引用(localId 去重);在线歌 → onlineSongs 内嵌(hash 去重) */
+export function addSongToPlaylist(plId, song) {
+  const pl = state.playlists.find((p) => p.id === plId);
+  if (!pl || !song) return false;
+  if (song.localId) {
+    if (!pl.songIds.includes(song.localId)) pl.songIds.push(song.localId);
+  } else if (song.hash) {
+    if (!pl.onlineSongs) pl.onlineSongs = [];
+    if (!pl.onlineSongs.some((s) => s.hash === song.hash)) {
+      pl.onlineSongs.push({
+        hash: song.hash, hash320: song.hash320 || '', name: song.name || '未知歌曲',
+        artists: song.artists || '未知歌手', img: song.img || '', duration: song.duration,
+        albumId: song.albumId || '', addedAt: Date.now(),
+      });
+    }
+  } else {
+    return false; // 无标识的歌(既非本地又无 hash)不收
+  }
+  saveMeta();
+  return true;
+}
+
+/** 上传自定义封面:压缩后的 blob 存 IDB(plc-<id>),标记 customCover 并清歌单级 URL */
+export async function setCustomCover(plId, blob) {
+  const pl = state.playlists.find((p) => p.id === plId);
+  if (!pl || !blob) return false;
+  const key = CUSTOM_COVER_PREFIX + plId;
+  await idbPut(STORE_COVER, key, blob);
+  if (coverUrlCache.has(key)) { URL.revokeObjectURL(coverUrlCache.get(key)); coverUrlCache.delete(key); }
+  pl.customCover = true;
+  pl.img = '';
+  saveMeta();
+  return true;
+}
+
+/** 用歌单内某首歌的封面:本地歌 → coverId;在线歌 → 歌单级 img URL;清除自定义封面 */
+export async function setPlaylistCoverFromSong(plId, song) {
+  const pl = state.playlists.find((p) => p.id === plId);
+  if (!pl || !song) return false;
+  if (song.localId) {
+    pl.coverId = song.localId;
+    pl.img = '';
+  } else if (song.img) {
+    pl.img = song.img;
+    pl.coverId = null;
+  } else {
+    return false;
+  }
+  if (pl.customCover) {
+    pl.customCover = false;
+    const key = CUSTOM_COVER_PREFIX + plId;
+    try { await idbDelete(STORE_COVER, key); } catch { /* 忽略 */ }
+    if (coverUrlCache.has(key)) { URL.revokeObjectURL(coverUrlCache.get(key)); coverUrlCache.delete(key); }
+  }
+  saveMeta();
+  return true;
+}
+
+/** 自定义封面 URL(未设置返回 '') */
+export async function getCustomCoverUrl(plId) {
+  return getCoverUrl(CUSTOM_COVER_PREFIX + plId);
+}
+
+/** 删歌单定义 + GC 孤儿:未被任何剩余歌单引用、且不在 protectedIds 中的歌 → 删 blob/元数据;自定义封面一并删 */
 export async function removePlaylist(plId, { protectedIds = [] } = {}) {
   state.playlists = state.playlists.filter((p) => p.id !== plId);
+  const key = CUSTOM_COVER_PREFIX + plId;
+  try { await idbDelete(STORE_COVER, key); } catch { /* 忽略 */ }
+  if (coverUrlCache.has(key)) { URL.revokeObjectURL(coverUrlCache.get(key)); coverUrlCache.delete(key); }
   const referenced = new Set(state.playlists.flatMap((p) => p.songIds));
   const orphanIds = state.songs
     .map((s) => s.localId)
@@ -266,5 +348,7 @@ export async function reset() {
 window.__APP_LOCAL = state; // 原地 mutate 稳定引用(fx.js 同模式)
 window.__APP_LOCAL_API = {
   importFiles, createPlaylist, removePlaylist, removeSongs,
-  getPlayUrl, getCoverUrl, idbCount: idbCountTotal, reset,
+  getPlayUrl, getCoverUrl, getPlaylistSongs, addSongToPlaylist,
+  setCustomCover, setPlaylistCoverFromSong, getCustomCoverUrl,
+  idbCount: idbCountTotal, reset,
 };

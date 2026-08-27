@@ -110,10 +110,11 @@ function songRow(song, i) {
       </div>
       <div class="row-dur">${song.duration != null ? formatTime(song.duration) : '--:--'}</div>
       <button class="row-play" title="播放">▶</button>
+      <button class="row-add" title="加入本地歌单">＋</button>
     </div>`;
 }
 
-/** 绑定一组歌曲行的点击:整行 = 播放队列中该曲;右侧按钮同理 */
+/** 绑定一组歌曲行的点击:整行 = 播放队列中该曲;右侧按钮同理;＋ = 加入本地歌单 */
 function bindSongRows(container, songs) {
   container.querySelectorAll('.song-row').forEach((row) => {
     const i = [...row.parentElement.children].indexOf(row);
@@ -122,12 +123,144 @@ function bindSongRows(container, songs) {
       e.stopPropagation();
       player.setQueue(songs, i);
     });
+    row.querySelector('.row-add').addEventListener('click', (e) => {
+      e.stopPropagation();
+      showAddToPlaylistUI(songs[i]);
+    });
+  });
+}
+
+// ---------- 加入本地歌单(推荐/搜索/榜单/歌单的在线歌均可收入)+ 歌单封面选择 ----------
+/** 通用玻璃弹层:返回 { ov, menu, close };点击遮罩关闭 */
+function overlayOpen(html) {
+  const ov = document.createElement('div');
+  ov.className = 'vmp-overlay';
+  const menu = document.createElement('div');
+  menu.className = 'vmp-menu';
+  menu.innerHTML = html;
+  ov.appendChild(menu);
+  const close = () => ov.remove();
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  document.body.appendChild(ov);
+  return { ov, menu, close };
+}
+
+/** 把一首歌(本地/在线)加入本地歌单:弹层选歌单或新建 */
+function showAddToPlaylistUI(song) {
+  if (!song || (!song.hash && !song.localId)) return;
+  const lists = localMusic.getPlaylists();
+  const rows = lists.length
+    ? lists.map((pl) => {
+        const count = (pl.songIds?.length || 0) + (pl.onlineSongs?.length || 0);
+        return `<button class="vmp-item" data-id="${escapeHtml(pl.id)}"><span class="vmp-item-name">${escapeHtml(pl.name)}</span><span class="vmp-item-sub">${count} 首</span></button>`;
+      }).join('')
+    : '<div class="vmp-empty">还没有本地歌单</div>';
+  const { menu, close } = overlayOpen(
+    `<div class="vmp-head">添加到本地歌单<span class="vmp-head-sub">${escapeHtml(song.name)}</span></div>
+     <div class="vmp-list">${rows}</div>
+     <div class="vmp-actions"><button class="vmp-btn" data-act="new">＋ 新建歌单</button><button class="vmp-btn" data-act="cancel">取消</button></div>`
+  );
+  menu.querySelectorAll('.vmp-item').forEach((b) => {
+    b.addEventListener('click', () => {
+      const name = b.querySelector('.vmp-item-name').textContent;
+      if (localMusic.addSongToPlaylist(b.dataset.id, song)) {
+        syncLocalPlaylistCounts();
+        toast(`已加入「${name}」`);
+      } else {
+        toast('加入失败,请重试', true);
+      }
+      close();
+    });
+  });
+  menu.querySelector('[data-act=cancel]').addEventListener('click', close);
+  menu.querySelector('[data-act=new]').addEventListener('click', () => {
+    menu.innerHTML =
+      `<div class="vmp-head">新建本地歌单</div>
+       <div class="vmp-list"><input id="vmp-new-name" class="vmp-input" type="text" placeholder="歌单名称" value="${escapeHtml(song.name)}"></div>
+       <div class="vmp-actions"><button class="vmp-btn" data-act="ok">创建并加入</button><button class="vmp-btn" data-act="cancel">取消</button></div>`;
+    menu.querySelector('[data-act=cancel]').addEventListener('click', close);
+    menu.querySelector('[data-act=ok]').addEventListener('click', async () => {
+      const name = menu.querySelector('#vmp-new-name').value.trim() || song.name || '我的歌单';
+      const pl = await localMusic.createPlaylist(name, [], []);
+      if (localMusic.addSongToPlaylist(pl.id, song)) {
+        insertMyPlaylist({ specialid: 'local:' + pl.id, specialname: name, img: '', count: 1, local: true });
+        toast(`已创建「${name}」并加入`);
+      }
+      close();
+    });
+  });
+}
+
+/** 图片 → 480×480 居中正方形 WebP(歌单自定义封面,控体积) */
+function makeSquareCover(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      URL.revokeObjectURL(url);
+      const S = 480;
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = S;
+      const ctx = cv.getContext('2d');
+      const side = Math.min(im.width, im.height);
+      ctx.drawImage(im, (im.width - side) / 2, (im.height - side) / 2, side, side, 0, 0, S, S);
+      cv.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob fail'))), 'image/webp', 0.85);
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('图片解码失败')); };
+    im.src = url;
+  });
+}
+
+/** 歌单封面选择:歌单内歌曲封面缩略图 / 本机图片上传(压缩 480 WebP 存 IDB) */
+async function showCoverPicker(pl) {
+  const songs = localMusic.getPlaylistSongs(pl);
+  const items = [];
+  for (const s of songs) {
+    let src = '';
+    if (s.localId) {
+      src = await localMusic.getCoverUrl(s.localId).catch(() => '');
+    } else {
+      src = fixImgUrl(s.img, 240);
+    }
+    if (src) items.push({ src, song: s });
+  }
+  const grid = items.length
+    ? `<div class="plc-grid">${items.map((it, i) => `<button class="plc-item" data-i="${i}"><img src="${escapeHtml(it.src)}" alt=""></button>`).join('')}</div>`
+    : '<div class="vmp-empty">歌单内暂无带封面的歌</div>';
+  const { menu, close } = overlayOpen(
+    `<div class="vmp-head">选择歌单封面</div>${grid}
+     <div class="vmp-actions"><button class="vmp-btn" data-act="upload">📁 从本机选图片</button><button class="vmp-btn" data-act="cancel">取消</button></div>`
+  );
+  menu.querySelectorAll('.plc-item').forEach((b) => {
+    b.addEventListener('click', async () => {
+      await localMusic.setPlaylistCoverFromSong(pl.id, items[Number(b.dataset.i)].song);
+      toast('封面已更新');
+      close();
+      renderMyPlaylists();
+    });
+  });
+  menu.querySelector('[data-act=cancel]').addEventListener('click', close);
+  menu.querySelector('[data-act=upload]').addEventListener('click', () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.onchange = async () => {
+      const f = inp.files?.[0];
+      inp.value = '';
+      if (!f) return;
+      try {
+        await localMusic.setCustomCover(pl.id, await makeSquareCover(f));
+        toast('封面已更新');
+        close();
+        renderMyPlaylists();
+      } catch { toast('图片处理失败,请重试', true); }
+    };
+    inp.click();
   });
 }
 
 /** 标记当前播放行:加 .playing + 序号处插入均衡条 */
-export function markPlayingRows(hash) {
-  document.querySelectorAll('.song-row.playing').forEach((r) => {
+export function markPlayingRows(hash) {  document.querySelectorAll('.song-row.playing').forEach((r) => {
     if (r.dataset.hash !== hash) {
       r.classList.remove('playing');
       r.querySelector('.idx .eq')?.remove();
@@ -192,6 +325,10 @@ async function renderQueue() {
       e.stopPropagation();
       player.playAt(i);
     });
+    row.querySelector('.row-add').addEventListener('click', (e) => {
+      e.stopPropagation();
+      showAddToPlaylistUI(q[i]);
+    });
   });
   if (cur) markPlayingRows(songKey(cur));
 }
@@ -222,7 +359,7 @@ async function renderRecommend() {
     const cards = songs.map(
       (s, i) => `
       <div class="card" data-i="${i}" data-hash="${escapeHtml(s.hash)}">
-        <div class="card-play-hint">${coverImg(s.img, 480)}<button class="play-badge">▶</button></div>
+        <div class="card-play-hint">${coverImg(s.img, 480)}<button class="play-badge">▶</button><button class="card-add" title="加入本地歌单">＋</button></div>
         <div class="card-name">${escapeHtml(s.name)}</div>
         <div class="card-sub">${escapeHtml(s.artists)}</div>
       </div>`
@@ -232,6 +369,10 @@ async function renderRecommend() {
     bindCoverFallback(el.main);
     el.main.querySelectorAll('.card').forEach((c) => {
       c.addEventListener('click', () => player.setQueue(songs, Number(c.dataset.i)));
+      c.querySelector('.card-add').addEventListener('click', (e) => {
+        e.stopPropagation();
+        showAddToPlaylistUI(songs[Number(c.dataset.i)]);
+      });
     });
   } catch {
     el.main.innerHTML = emptyBox('加载失败');
@@ -316,7 +457,7 @@ async function renderSongSearch(keyword) {
     const cards = songs.map(
       (s, i) => `
       <div class="card" data-i="${i}" data-hash="${escapeHtml(s.hash)}">
-        <div class="card-play-hint">${coverImg(s.img, 480)}<button class="play-badge">▶</button></div>
+        <div class="card-play-hint">${coverImg(s.img, 480)}<button class="play-badge">▶</button><button class="card-add" title="加入本地歌单">＋</button></div>
         <div class="card-name">${escapeHtml(s.name)}</div>
         <div class="card-sub">${escapeHtml(s.artists)}${s.duration != null ? ' · ' + formatTime(s.duration) : ''}</div>
       </div>`
@@ -325,6 +466,10 @@ async function renderSongSearch(keyword) {
     bindCoverFallback(el.main);
     el.main.querySelectorAll('.card').forEach((c) => {
       c.addEventListener('click', () => player.setQueue(songs, Number(c.dataset.i)));
+      c.querySelector('.card-add').addEventListener('click', (e) => {
+        e.stopPropagation();
+        showAddToPlaylistUI(songs[Number(c.dataset.i)]);
+      });
     });
   } catch {
     el.main.innerHTML = `<div class="view-title">${title}</div>` + emptyBox('加载失败');
@@ -480,12 +625,32 @@ function saveMyPlaylists(list) {
   }
 }
 
+/** 本地歌单卡曲目数与实际(localMusic 状态)同步:加入/移除在线歌后调用 */
+function syncLocalPlaylistCounts() {
+  const mine = loadMyPlaylists();
+  let dirty = false;
+  for (const p of mine) {
+    if (!p.local) continue;
+    const pl = localMusic.getPlaylists().find((x) => x.id === String(p.specialid).slice(6));
+    const n = pl ? (pl.songIds?.length || 0) + (pl.onlineSongs?.length || 0) : p.count;
+    if (n !== p.count) { p.count = n; dirty = true; }
+  }
+  if (dirty) saveMyPlaylists(mine);
+}
+
 async function renderMyPlaylists() {
   const mine = loadMyPlaylists();
+  // 本地卡封面解析:自定义上传 > 歌单级 URL > 本地歌封面 > 歌单内首曲封面 > 空
   const imgs = await Promise.all(mine.map(async (p) => {
     if (!p.local) return p.img || '';
     const pl = localMusic.getPlaylists().find((x) => x.id === String(p.specialid).slice(6));
-    return pl?.coverId ? localMusic.getCoverUrl(pl.coverId).catch(() => '') : '';
+    if (!pl) return '';
+    if (pl.customCover) return localMusic.getCustomCoverUrl(pl.id).catch(() => '');
+    if (pl.img) return fixImgUrl(pl.img, 480);
+    if (pl.coverId) return localMusic.getCoverUrl(pl.coverId).catch(() => '');
+    const first = localMusic.getPlaylistSongs(pl).find((s) => (s.localId && s.cover) || s.img);
+    if (!first) return '';
+    return first.localId ? localMusic.getCoverUrl(first.localId).catch(() => '') : fixImgUrl(first.img, 480);
   }));
   el.main.innerHTML =
     '<div class="view-title">📁 我的歌单<span class="sub">粘贴分享链接/歌单号,或输入歌单名搜索 · 公开歌单即可播放</span></div>' +
@@ -564,6 +729,13 @@ async function renderMyPlaylists() {
         backLabel: '‹ 返回我的歌单',
         onBack: () => renderMyPlaylists(),
       });
+    });
+    // 本地歌单:点封面图 = 更换歌单封面(不触发打开歌单)
+    c.querySelector('.card-play-hint img')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const pl = loadMyPlaylists()[Number(c.dataset.i)];
+      if (!pl?.local) return;
+      showCoverPicker(localMusic.getPlaylists().find((x) => x.id === String(pl.specialid).slice(6)));
     });
   });
 }
@@ -729,7 +901,7 @@ async function createLocalPlaylist() {
   createLocalPlaylistFromFiles(await pickFiles(true));
 }
 
-/** 本地歌单曲目页:纯本地数据,零网络请求 */
+/** 本地歌单曲目页:本地歌 + 收入歌单的在线歌混合列表 */
 function renderLocalPlaylist(pl) {
   const list = localMusic.getPlaylists().find((x) => x.id === String(pl.specialid).slice(6));
   const back = () => renderMyPlaylists();
@@ -741,9 +913,9 @@ function renderLocalPlaylist(pl) {
     toast('本地歌单数据缺失', true);
     return;
   }
-  const songs = localMusic.getSongs(list.songIds);
+  const songs = localMusic.getPlaylistSongs(list);
   renderSongListView(songs, pl.specialname, {
-    sub: `共 ${songs.length} 首 · 本地文件`,
+    sub: `共 ${songs.length} 首 · 本地 + 在线`,
     backLabel: '‹ 返回我的歌单',
     onBack: back,
   });

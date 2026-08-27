@@ -19,6 +19,7 @@
  *      安全断言 S24(CORS 白名单·禁用路由 404·SSRF 拦截·安全头·Cookie 属性·CSP meta)→
  *      旧登录态迁移 S25(legacy cookie → localStorage + /auth/logout)→
  *      播放模式 S26(btn-mode 三态·vmp.playmode.v1 持久化·ended 切歌行为)→
+ *      本地歌单增强 S27(在线歌加入歌单·弹层选择·自定义封面)→
  *      全程无未捕获异常。每步失败互不阻断。
  */
 const { spawn } = require('node:child_process');
@@ -1392,6 +1393,54 @@ async function newTarget() {
       await ev("(async()=>{const {player}=await import('/js/player.js'); player.setPlayMode('order'); player.clear(); return true;})()");
       await ev("window.__APP_LOCAL_API.reset()");
       await ev("localStorage.removeItem('vmp.playmode.v1')");
+    });
+
+    // S27 本地歌单增强:在线歌(推荐/搜索)加入本地歌单 + 自定义歌单封面
+    await step('S27', async () => {
+      await ev("(async()=>{ await window.__APP_LOCAL_API.reset(); localStorage.removeItem('vmp.myplaylists.v1'); return true;})()");
+      // 模块级:建歌单 → 加入在线歌(hash 去重)→ 混合曲目读取
+      const mix = await ev(`(async()=>{
+        const {createPlaylist, addSongToPlaylist, getPlaylistSongs} = window.__APP_LOCAL_API;
+        const pl = await createPlaylist('测试歌单', [], []);
+        window.__s27pl = pl;
+        addSongToPlaylist(pl.id, {hash:'fakehash27', name:'假在线歌', artists:'测试歌手', img:'', duration:200});
+        addSongToPlaylist(pl.id, {hash:'fakehash27', name:'重复加', artists:'x'});
+        const songs = getPlaylistSongs(pl);
+        return {id: pl.id, n: songs.length, first: songs[0]?.hash, online: pl.onlineSongs?.length};
+      })()`);
+      check('S27 歌单:在线歌入列 + hash 去重', !!mix && mix.n === 1 && mix.first === 'fakehash27' && mix.online === 1, JSON.stringify(mix));
+      // UI:队列行 ＋ 按钮 → 弹层选歌单 → 本地歌经弹层入歌单
+      await mkWavFixtures();
+      await ev(`(async()=>{
+        const {importFiles}=await import('/js/local-music.js');
+        const r=await importFiles([window.__wavA]);
+        const {player}=await import('/js/player.js');
+        player.setQueue(r.songs, 0);
+        return true;
+      })()`);
+      await openDrawer();
+      await ev("document.querySelector('.drawer-tab-btn[data-tab=queue]').click()");
+      const hasAdd = await poll("!!document.querySelector('#queue-view .row-add')", 5000);
+      check('S27 UI:队列行有「＋」按钮', hasAdd);
+      if (!hasAdd) return;
+      await ev("document.querySelector('#queue-view .row-add').click()");
+      check('S27 UI:点击＋弹出歌单选择层', await poll("!!document.querySelector('.vmp-overlay')", 3000));
+      check('S27 UI:选择层列出已有歌单', await ev("document.querySelectorAll('.vmp-item').length") >= 1);
+      await ev("document.querySelector('.vmp-item').click()");
+      check('S27 UI:选择后弹层关闭', await poll("!document.querySelector('.vmp-overlay')", 3000));
+      const after = await ev("(async()=>{const pl=window.__s27pl; return {songIds: pl.songIds.length, online: pl.onlineSongs?.length};})()");
+      check('S27 UI:本地歌经弹层入歌单(songIds+1)', after.songIds === 1 && after.online === 1, JSON.stringify(after));
+      // 封面:合成 PNG → setCustomCover 存 IDB → 可读 blob URL
+      const cov = await ev(`(async()=>{
+        const cv=document.createElement('canvas'); cv.width=cv.height=8;
+        const b=await new Promise(r=>cv.toBlob(r,'image/png'));
+        const ok=await window.__APP_LOCAL_API.setCustomCover(window.__s27pl.id, b);
+        const url=await window.__APP_LOCAL_API.getCustomCoverUrl(window.__s27pl.id);
+        return {ok, blob: url.startsWith('blob:')};
+      })()`);
+      check('S27 封面:自定义封面写入 IDB 并可读 URL', cov?.ok === true && cov?.blob === true, JSON.stringify(cov));
+      // 清理
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.clear(); await window.__APP_LOCAL_API.reset(); localStorage.removeItem('vmp.myplaylists.v1'); return true;})()");
     });
 
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)
