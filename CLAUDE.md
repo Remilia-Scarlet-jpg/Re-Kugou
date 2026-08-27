@@ -44,6 +44,7 @@
   - 注入只经 preload(contextIsolation+sandbox 全开);页面不得拿 ipcRenderer 本体
   - 窗口控件/拖拽条零 border(铁律 #6 延续);**登录入口 = 抽屉用户大标题,主页右上角登录按钮已移除**;桌词小窗 = 无边框透明置顶 BrowserWindow(setWindowOpenHandler,页面 moveBy/7s 自关零改动)
   - 根 package.json **dependencies 必须留空**(防 electron-builder 误捆);api 依赖经 `npm run stage` 从 lockfile 图遍历入包;打包 = `npm run dist`;产物 `release\REKG Setup x.y.z.exe`;卸载保留 `%APPDATA%\REKG` 数据(旧版「星际音乐」数据目录由 main.js 启动时自动改名迁移)
+  - **版本号规则(先生定调,每次打包前照此改 package.json version)**:每次修改 +0.0.1;patch 累计满 10 次进位 minor +0.1 且 patch 归零(如 1.0.9 的下一次 → 1.1.0);**当前基准 1.0.7**,下次打包应升为 1.0.8
   - 测试:安装版带 `--remote-debugging-port=9229` 启动 + `VMP_CDP_USE_EXISTING=1 node scripts/cdp_test.js`(attach 现有 target,/json/new 在 Electron 不可靠);dev 模式需 `ELECTRON_DISABLE_SECURITY_WARNINGS=1` 防 S9 误报
   - **本机环境坑:用户的 bash profile 全局设了 `ELECTRON_RUN_AS_NODE=1`**,CLI 启动 electron 必须 `env -u ELECTRON_RUN_AS_NODE`(否则以纯 Node 运行、require('electron') 返回路径字符串);资源管理器双击 exe 不受影响
   - 镜像:`.npmrc` 三 key(registry/electron_mirror/electron_builder_binaries_mirror 均 npmmirror),安装失败先查镜像
@@ -71,6 +72,7 @@
 - **歌曲搜索走 type=lyric 词曲检索通道**:lite 模式 `/search?type=song` 走 /v3 报 152(Parameter Error,实测),type=lyric 反而返回完整可播放元数据(FileHash 128k/320Hash/trans_param.ogg_320_hash/TimeLength 秒/Image {size} 占位)
 - **封面补全走 /images 接口**:分享页(dataFromSmarty)解析出的歌只有 hash + album_id 无封面 → 前端播放时按需 `GET /images?hash=&album_id=&count=1`(android 签名接口,lite 可用),封面在 `data[0].album[0].sizable_cover`({size} 占位);server.js 分享/歌单号两路都保留 albumId 字段
 - 登录:/login/qr/key 返回 base64 PNG(无需 QR 库)+ /login/qr/check?key=(status 4 时服务端 Set-Cookie token+userid);前端 fetch 走 credentials:'include'
+- **每日推荐 = /recommend/songs**(module/recommend_songs → 上游 POST /everyday_song_recommend,everydayrec.service.kugou.com,白名单内):未登录 userid=0 返回通用推荐 30 首/天(status 1,含 songname/singerinfo/sizable_cover/time_length 秒),登录带 userid cookie 个性化;前端 `getRecommendSongs` 用 getJsonCred(credentials include + timestamp 破缓存)——两服务未启动时推荐页会报「无法连接音乐服务」,先查 3000/3001
 - **VIP 播放**(登录后):/song/url(v5)带登录 cookie 返回 320k 明文 mp3;**勿用 /song/url/new(v6)— .mgg 加密格式,浏览器无法解码**;未登录勿调 /user/vip/detail(上游 502 刷控制台,前端已用 cookie 守卫)
 - cloudlist 签名失效 → 「我的歌单」= 粘贴分享链接/歌单号(localStorage 'vmp.myplaylists.v1')
 - App 分享短链(t1.kugou.com → wwwapi 分享页)可读完整列表(≤100 首):JSON.parse 前须方括号计数截取;需桌面 UA
@@ -125,3 +127,17 @@
 - **桌词拖动误触放大修复(2026-08-19)**:用户反馈「拖拽桌面歌词时整个边框自动变大」——根因:页面逐帧 `moveBy` 拖拽中鼠标落进窗口边缘 6px 命中带,Windows 把后续移动解释为拉伸窗口。修复:Electron 小窗 `#dl-drag` 加 `-webkit-app-region:drag`(手柄内控件 `.dl-ctrls` no-drag),view 在 Electron 模式跳过 moveBy 拖动(原生拖拽与系统 resize 互斥);浏览器 popup `window.open` features 增加 `resizable=no`。Electron 壳小窗仍保留 resizable(用户可在非 drag 区边缘手动调大小)
 - **播放模式三态(2026-08-19)**:播放条 `.ctrl-row` 新增 `#btn-mode` 按钮(🔁顺序循环/🔂单曲循环/🔀随机播放,点击循环切换,非顺序模式点亮薄荷色 `.ctrl-mode.active`);`player.js` 只改 `next()` 选曲(`getPlayMode`/`setPlayMode`/`cyclePlayMode`,持久化 `vmp.playmode.v1`,标记 `window.__APP_PLAY_MODE`),音频链未动;顺带修复 `_playLocal` 同曲重播 bug(旧代码先 `_revokeLocalSrc` 再设 src,单曲/顺序单曲队列重播会复用已 revoke 的 objectURL → 必挂;现改为先设新 src、仅当 URL 不同才 revoke 旧,符合 local-music.js 头注释约定);测试 S26 十二项(三态切换/持久化/高亮/ended 实际切歌行为,本地双曲 WAV 队列零网络依赖)
 - **登录入口迁移到抽屉(2026-08-19)**:主页右上角 `#login-btn` 删除(样式/.pointer-events/z-index 注释/body[data-electron] 让位规则一并清理);登录入口唯一 = 抽屉用户大标题 `#drawer-user`(未登录→点击开登录弹窗;已登录→VIP 徽章(`formatVipLabel`)+ UID 副标题 + 两击退出,与旧顶栏行为一致);登录态判定 `api.hasLogin()`(localStorage vmp.login.v1),VIP 详情查询失败(上游 502/风控)不回退成「未登录」显示「已登录」保留退出能力;测试 S10 同步改造(login-btn 移除断言 + drawer-user 入口 + 未登录文案)
+
+## Agent skills
+
+### Issue tracker
+
+Issues 存放在 GitHub issues，所有操作使用 `gh` CLI。See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+默认五角色 label 词汇：`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`。See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context 布局：根目录 `CONTEXT.md` + `docs/adr/`。See `docs/agents/domain.md`.

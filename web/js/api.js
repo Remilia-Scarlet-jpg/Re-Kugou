@@ -46,9 +46,10 @@ export async function getHotWords() {
   }));
 }
 
-/** 每日推荐 → Song[](time_length 新版为秒、旧版为毫秒,按量级兼容) */
+/** 每日推荐 → Song[](time_length 新版为秒、旧版为毫秒,按量级兼容);
+ * credentials 带 cookie:登录用户 userid 生效 → 个性化推荐;未登录 userid=0 → 通用推荐 30 首/天 */
 export async function getRecommendSongs() {
-  const d = await getJson('/recommend/songs');
+  const d = await getJsonCred('/recommend/songs', { timestamp: Date.now() }); // timestamp 破 2 分钟缓存
   const list = d?.data?.song_list || [];
   return list.map((s) =>
     normSong({
