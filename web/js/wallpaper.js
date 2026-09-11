@@ -11,6 +11,7 @@
  */
 import { getFx, subscribe } from './fx.js';
 import { toast } from './ui.js';
+import { onHidden, onVisible, isHidden } from './lifecycle.js';
 
 const CFG_KEY = 'vmp.wallpaper.v1';
 const DB_NAME = 'vmp-wallpaper-v1';
@@ -30,6 +31,7 @@ let imgUrl = '';
 let videoUrl = '';
 let hintEl = null;
 let onVideoAccepted = null; // S14 测试钩子:拦截保存动作(验证上限判定,不实际落库)
+let mediaWasPlaying = false; // 生命周期挂起前视频是否在播(恢复时决定是否续播)
 
 // ---------- IndexedDB(vmp-wallpaper-v1 / media) ----------
 let db = null;
@@ -83,6 +85,25 @@ function showMedia(type) {
     try { video.pause(); } catch { /* 未载源时 pause 可能抛错,忽略 */ }
   }
 }
+
+// ---------- 生命周期挂起/恢复(内存优化) ----------
+// 隐藏时:暂停 + 摘除 src + load() 释放解码器帧缓冲(视频壁纸的「线程休眠」,内存大头)。
+// 保留 objectURL 不 revoke:恢复时零 IDB 重读(大视频重读动辄数秒);压缩源 blob 由浏览器
+// 落盘管理不占 JS 堆,解码帧才是真正的内存占用,摘 src 即可回收。
+function suspendMedia() {
+  if (cfg.type !== 'video' || !cfg.enabled) return;
+  mediaWasPlaying = !video.paused && !video.ended;
+  try { video.pause(); } catch { /* 未载源时 pause 可能抛错,忽略 */ }
+  video.removeAttribute('src');
+  try { video.load(); } catch { /* 忽略 */ }
+}
+function resumeMedia() {
+  if (cfg.type !== 'video' || !cfg.enabled || !videoUrl) return;
+  if (video.getAttribute('src') === videoUrl) return; // 未挂起过,已在播
+  video.src = videoUrl;
+  if (mediaWasPlaying) video.play().catch(() => {});
+  mediaWasPlaying = false;
+}
 function saveCfg() {
   try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch { /* 配额满忽略 */ }
 }
@@ -107,6 +128,7 @@ async function applyVideoBlob(blob) {
   saveCfg();
   setMarker('video');
   updateHint();
+  if (isHidden()) suspendMedia(); // 异步完成时窗口已隐藏(如启动即最小化)→ 立即休眠
 }
 
 function applyImageDataUrl(dataUrl) {
@@ -229,6 +251,7 @@ async function restore() {
         cfg = { ...saved };
         setMarker('video');
         updateHint();
+        if (isHidden()) suspendMedia(); // 启动恢复完成时窗口已隐藏 → 立即休眠
         return;
       }
     } catch { /* 同上 */ }
@@ -289,6 +312,8 @@ export function initWallpaper(rootEl) {
   });
   renderSection(rootEl);
   updateHint();
+  onHidden(suspendMedia);  // 生命周期:隐藏挂起(壁纸线程休眠)/恢复续播
+  onVisible(resumeMedia);
   restore();
 }
 

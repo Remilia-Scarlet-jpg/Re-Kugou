@@ -75,10 +75,15 @@ class Player {
 
   // ---------- Web Audio 分析管线(首次播放时惰性构建,须在用户手势栈内) ----------
   async _ensureGraph() {
-    if (this._graphBuilt) return;
+    if (this._graphBuilt) {
+      // 生命周期恢复兜底:曾挂起的上下文在再次播放(用户手势栈内)时恢复,防静音
+      if (this._ctx?.state === 'suspended') this._ctx.resume().catch(() => {});
+      return;
+    }
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return; // 无 Web Audio 环境则纯播放,不做可视化
     const ctx = new Ctx();
+    this._ctx = ctx; // 生命周期挂起/恢复用(见 suspendGraph/resumeGraph)
     if (ctx.state === 'suspended') {
       try { await ctx.resume(); } catch { /* 用户手势缺失时保持静默 */ }
     }
@@ -95,6 +100,20 @@ class Player {
 
   getAnalyser() {
     return this._analyser;
+  }
+
+  /** 内存优化:窗口隐藏且未播放时挂起 Web Audio 释放音频线程。
+   *  播放中绝不挂起——挂起即静音,音乐必须在最小化后继续响。 */
+  suspendGraph() {
+    if (this._ctx && this._ctx.state === 'running' && this.state !== 'playing') {
+      this._ctx.suspend().catch(() => {});
+    }
+  }
+  /** 恢复可见时唤醒;resume 被自动播放策略拒绝时静默,下次播放手势栈内另有兜底 */
+  resumeGraph() {
+    if (this._ctx && this._ctx.state === 'suspended') {
+      this._ctx.resume().catch(() => {});
+    }
   }
 
   // ---------- 队列 ----------

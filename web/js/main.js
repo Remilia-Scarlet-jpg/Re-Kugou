@@ -10,6 +10,7 @@ import { saveQueue, loadQueue } from './store.js';
 import { initFxPanel } from './fx-panel.js';
 import { initWallpaper } from './wallpaper.js';
 import { initDesktopLyrics } from './desktop-lyrics.js';
+import { initLifecycle, onHidden, onVisible } from './lifecycle.js';
 
 // ---------- 音乐壁纸可视化:3D(WebGL)优先,失败回退 2D 星野 ----------
 const canvas = document.getElementById('starfield');
@@ -31,6 +32,18 @@ if (!viz) {
 }
 player.on('analyserready', (a) => viz.setAnalyser(a));
 player.on('statechange', (s) => viz.setPlaying(s === 'playing'));
+
+// ---------- 生命周期挂起(内存优化) ----------
+// 窗口隐藏(最小化/标签切换/锁屏)→ 停可视化 rAF + 挂起 Web Audio(播放中不挂,音乐继续响);
+// 壁纸视频解码休眠由 wallpaper.js 自行订阅;桌面歌词不接入(心跳必须跨最小化存活)。
+onHidden(() => {
+  viz.setSuspended(true);
+  player.suspendGraph();
+});
+onVisible(() => {
+  viz.setSuspended(false);
+  player.resumeGraph();
+});
 
 // ---------- 预取下一首的播放地址(URL 带时间戳会过期,提前备好减少切歌等待) ----------
 player.on('songchange', ({ index }) => {
@@ -69,6 +82,8 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ---------- 启动 ----------
+// 生命周期状态机必须在各子系统订阅注册之后初始化(页面以 hidden 态加载时立即触发挂起)
+initLifecycle();
 // 旧登录态迁移(安全改造):老版 token 在非 HttpOnly cookie → localStorage,旧 cookie 服务端幂等清除;
 // 必须在 initUI 之前,refreshLoginState 依赖 hasLogin() 的判定结果
 migrateLegacyLogin();

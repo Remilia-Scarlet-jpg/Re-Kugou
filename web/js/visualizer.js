@@ -55,6 +55,7 @@ export class Visualizer {
     this.fpsEma = 60;
     this.downCooldown = 0;
     this.mouse = { x: 0.5, y: 0.5 };
+    this._suspended = false; // 生命周期挂起态(窗口隐藏停 rAF,恢复时重置时钟)
 
     this._buildBg();
     this._resize();
@@ -79,6 +80,18 @@ export class Visualizer {
   setPlaying(on) {
     this.playing = on;
     if (!on) this.visualActive = false;
+  }
+
+  /** 生命周期挂起(内存优化):窗口隐藏停 rAF;恢复时重置时钟防大步进跳变 */
+  setSuspended(on) {
+    if (this._suspended === on) return;
+    this._suspended = on;
+    if (on) {
+      cancelAnimationFrame(this._raf);
+    } else {
+      this.lastTs = performance.now();
+      this._raf = requestAnimationFrame((ts) => this._loop(ts));
+    }
   }
 
   destroy() {

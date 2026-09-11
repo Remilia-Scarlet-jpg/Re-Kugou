@@ -20,6 +20,7 @@
  *      旧登录态迁移 S25(legacy cookie → localStorage + /auth/logout)→
  *      播放模式 S26(btn-mode 三态·vmp.playmode.v1 持久化·ended 切歌行为)→
  *      本地歌单增强 S27(在线歌加入歌单·弹层选择·自定义封面)→
+ *      生命周期内存优化 S28(hidden 壁纸视频解码休眠·rAF 挂起·Web Audio 挂起·恢复)→
  *      全程无未捕获异常。每步失败互不阻断。
  */
 const { spawn } = require('node:child_process');
@@ -1441,6 +1442,68 @@ async function newTarget() {
       check('S27 封面:自定义封面写入 IDB 并可读 URL', cov?.ok === true && cov?.blob === true, JSON.stringify(cov));
       // 清理
       await ev("(async()=>{const {player}=await import('/js/player.js'); player.clear(); await window.__APP_LOCAL_API.reset(); localStorage.removeItem('vmp.myplaylists.v1'); return true;})()");
+    });
+
+    // S28 生命周期内存优化:hide 时视频壁纸解码休眠(src 摘除)+ 可视化 rAF 挂起 +
+    // Web Audio 未播放挂起;show 后全部唤醒且播放链正常(桌面歌词不接入生命周期,心跳存活)
+    await step('S28', async () => {
+      check('S28 生命周期:初始标记 active', (await ev("window.__APP_LIFECYCLE")) === 'active');
+      // 合成 1 帧 webm 视频壁纸(同 S12e 手法)→ 应用后 video 有 blob: src
+      await ev("window.__wpChunks=[]; (()=>{const cv=document.createElement('canvas');cv.width=64;cv.height=64;cv.getContext('2d').fillRect(0,0,64,64);const st=cv.captureStream(5);window.__wpRec=new MediaRecorder(st);window.__wpRec.ondataavailable=(e)=>{if(e.data.size)window.__wpChunks.push(e.data);};window.__wpRec.start();return true;})()");
+      await sleep(400);
+      await ev("window.__wpRec.stop()");
+      await ev("window.__APP_WALLPAPER_API.applyVideoBlob(new Blob(window.__wpChunks, {type:'video/webm'}))");
+      check('S28 壁纸:视频就绪(标记 video + blob src)', await poll(
+        "window.__APP_WALLPAPER === 'video' && document.getElementById('wallpaper-video').getAttribute('src')?.startsWith('blob:')", 5000));
+      // hide:壁纸解码休眠(src 摘除 + paused)+ 可视化 rAF 挂起(时间冻结)
+      await ev("window.__APP_LIFECYCLE_API.hide()");
+      check('S28 生命周期:hide → 标记 hidden', await poll("window.__APP_LIFECYCLE === 'hidden'", 2000));
+      const vidSrc = await ev("document.getElementById('wallpaper-video').getAttribute('src')");
+      const vidPaused = await ev("document.getElementById('wallpaper-video').paused");
+      check('S28 壁纸:hidden 摘除视频 src(解码休眠)', vidSrc === null && vidPaused === true, `src=${JSON.stringify(vidSrc)} paused=${vidPaused}`);
+      const is3d = (await ev("window.__APP_STARFIELD_3D")) === '1';
+      const vizKey = is3d ? '__APP_VIZ3D' : '__APP_VIZ2D';
+      const susp = await ev(`window.${vizKey}._suspended === true`);
+      const t1 = await ev(`window.${vizKey}.t`);
+      await sleep(600);
+      const t2 = await ev(`window.${vizKey}.t`);
+      check(`S28 ${is3d ? '3D' : '2D'}:hidden 挂起 rAF(时间冻结)`, susp && Math.abs(t2 - t1) < 1e-9, `susp=${susp} t1=${t1.toFixed(2)} t2=${t2.toFixed(2)}`);
+      // show:全部唤醒(标记/rAF 前进/壁纸 src 恢复)
+      await ev("window.__APP_LIFECYCLE_API.show()");
+      check('S28 生命周期:show → 标记 active', await poll("window.__APP_LIFECYCLE === 'active'", 2000));
+      const tA = await ev(`window.${vizKey}.t`);
+      await sleep(500);
+      const tB = await ev(`window.${vizKey}.t`);
+      check(`S28 ${is3d ? '3D' : '2D'}:show 后 rAF 恢复(时间前进)`, tB > tA, `tA=${tA.toFixed(2)} tB=${tB.toFixed(2)}`);
+      check('S28 壁纸:show 恢复视频 src', await poll("document.getElementById('wallpaper-video').getAttribute('src')?.startsWith('blob:')", 5000));
+      // Web Audio:本地 WAV 播 → ctx running;暂停 + hide → suspended;show → running;再播正常
+      await mkWavFixtures();
+      await ev(`(async()=>{
+        const {importFiles}=await import('/js/local-music.js');
+        const r=await importFiles([window.__wavA]);
+        const {player}=await import('/js/player.js');
+        player.setQueue(r.songs, 0);
+        return true;
+      })()`);
+      check('S28 音频:播放后 ctx running',
+        await poll("(async()=>{const {player}=await import('/js/player.js'); return player._ctx?.state === 'running';})()", 15000),
+        String(await ev("(async()=>{const {player}=await import('/js/player.js'); return player._ctx?.state;})()")));
+      await poll("!document.getElementById('audio').paused", 10000); // 确保已进入 playing 态
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.toggle(); return true;})()"); // 暂停
+      await ev("window.__APP_LIFECYCLE_API.hide()");
+      check('S28 音频:hidden + 未播放 → ctx suspended', await poll(
+        "(async()=>{const {player}=await import('/js/player.js'); return player._ctx?.state === 'suspended';})()", 3000),
+        String(await ev("(async()=>{const {player}=await import('/js/player.js'); return player._ctx?.state;})()")));
+      await ev("window.__APP_LIFECYCLE_API.show()");
+      check('S28 音频:show → ctx running', await poll(
+        "(async()=>{const {player}=await import('/js/player.js'); return player._ctx?.state === 'running';})()", 3000));
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.toggle(); return true;})()"); // 续播
+      check('S28 音频:挂起循环后播放链正常', await poll("!document.getElementById('audio').paused", 5000));
+      // 收尾:清队列/本地库/壁纸,生命周期归位 active,不污染 S9 审计与可重复性
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.clear(); return true;})()");
+      await ev("window.__APP_LOCAL_API.reset()");
+      await ev("window.__APP_WALLPAPER_API.clearWallpaper()");
+      await ev("window.__APP_LIFECYCLE_API.show()");
     });
 
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)

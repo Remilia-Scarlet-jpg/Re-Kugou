@@ -44,7 +44,7 @@
   - 注入只经 preload(contextIsolation+sandbox 全开);页面不得拿 ipcRenderer 本体
   - 窗口控件/拖拽条零 border(铁律 #6 延续);**登录入口 = 抽屉用户大标题,主页右上角登录按钮已移除**;桌词小窗 = 无边框透明置顶 BrowserWindow(setWindowOpenHandler,页面 moveBy/7s 自关零改动)
   - 根 package.json **dependencies 必须留空**(防 electron-builder 误捆);api 依赖经 `npm run stage` 从 lockfile 图遍历入包;打包 = `npm run dist`;产物 `release\REKG Setup x.y.z.exe`;卸载保留 `%APPDATA%\REKG` 数据(旧版「星际音乐」数据目录由 main.js 启动时自动改名迁移)
-  - **版本号规则(先生定调,每次打包前照此改 package.json version)**:每次修改 +0.0.1;patch 累计满 10 次进位 minor +0.1 且 patch 归零(如 1.0.9 的下一次 → 1.1.0);**当前基准 1.0.8**,下次打包应升为 1.0.9
+  - **版本号规则(先生定调,每次打包前照此改 package.json version)**:每次修改 +0.0.1;patch 累计满 10 次进位 minor +0.1 且 patch 归零(如 1.0.9 的下一次 → 1.1.0);**当前基准 1.0.9**,下次打包应升为 1.1.0
   - 测试:安装版带 `--remote-debugging-port=9229` 启动 + `VMP_CDP_USE_EXISTING=1 node scripts/cdp_test.js`(attach 现有 target,/json/new 在 Electron 不可靠);dev 模式需 `ELECTRON_DISABLE_SECURITY_WARNINGS=1` 防 S9 误报
   - **本机环境坑:用户的 bash profile 全局设了 `ELECTRON_RUN_AS_NODE=1`**,CLI 启动 electron 必须 `env -u ELECTRON_RUN_AS_NODE`(否则以纯 Node 运行、require('electron') 返回路径字符串);资源管理器双击 exe 不受影响
   - 镜像:`.npmrc` 三 key(registry/electron_mirror/electron_builder_binaries_mirror 均 npmmirror),安装失败先查镜像
@@ -61,7 +61,8 @@
 - `player.js` — 单例事件总线:timeupdate/statechange/analyserready/queuechange/songchange/toast/volumechange/playmodechange;`playAt(i)`、`getQueue()` 已存在,勿重复实现;音频链 `_ensureGraph`/`_playIndex`/状态机不要动(播放模式只改 `next()` 选曲:`getPlayMode`/`setPlayMode`/`cyclePlayMode`,三态 order 顺序循环/loop-one 单曲循环/shuffle 随机播放,持久化 `vmp.playmode.v1`,标记 `window.__APP_PLAY_MODE`;`_playLocal` 同曲重播复用同一 objectURL 不 revoke——先设新 src 再 revoke 旧,勿改回)
 - `ui.js`(约 800 行)— UI 单例:el 缓存 + 渲染函数;**新增 UI 一律走 MutationObserver 沉浸模式逻辑,勿手改各渲染函数**;播放条 `#btn-mode` 三态切歌模式(🔁顺序循环/🔂单曲循环/🔀随机播放,非顺序高亮薄荷色);**登录入口 = 抽屉用户大标题 `#drawer-user`(主页右上角登录按钮已移除):未登录→登录弹窗,已登录→VIP 徽章/「已登录」+ 两击退出**(VIP 查询失败不回退成「未登录」)
 - `lyrics.js` — parseLRC/findLineIndex/LyricsView;歌词同步链:audio timeupdate → player emit → ui.js 处理器(注意 ui.js 只在歌词抽屉打开时才调 lyricsView.update — 桌面歌词等新消费者需绕过此闸门或另接事件);**parseLRC 过滤元信息行**(`isMetaLine`:词/曲/编曲/演唱/制作等中日署名前缀)+ `skipLine` 谓词(loadFor 传 `isTitleDupLine` 剔除「歌名 - 歌手」标题重复行,防 LRC 顶部元信息堆满歌词区)
-- `visualizer3d.js` — 模块级常量 PALETTE_IDLE/PALETTE_ENERGY/E_STEPS/N_ORB=1800/N_STARS=1500/N_RING=800;相机 = user 基准轨道 + cameraman 电影偏移(已接入 fx 管线);契约同 visualizer.js:constructor/setAnalyser/setPlaying/destroy
+- `visualizer3d.js` — 模块级常量 PALETTE_IDLE/PALETTE_ENERGY/E_STEPS/N_ORB=1800/N_STARS=1500/N_RING=800;相机 = user 基准轨道 + cameraman 电影偏移(已接入 fx 管线);契约同 visualizer.js:constructor/setAnalyser/setPlaying/destroy + **setSuspended(生命周期挂起 rAF,恢复时重置时钟防大步进,2D 引擎同契约)**
+- `lifecycle.js` — active⇄hidden 生命周期状态机(内存优化):双信号取或(document.visibilitychange + Electron minimize/restore IPC `app:hidden`);订阅方挂起重型子系统;**桌面歌词不接入**(心跳/推送必须跨最小化存活);测试钩子 `__APP_LIFECYCLE`/`__APP_LIFECYCLE_API.hide()/show()`
 - `api.js` — 酷狗接口映射(lite 数据形状兼容);`server.js` — /api/url 与 /api/playlist 两个代理
 - `store.js`/`config.js` — localStorage 键名 `vmp.<name>.v1` + 防抖写盘模式
 - **z 序**:wallpaper-layer → canvas(底)→ 右浏览抽屉 z4 → 歌词抽屉 z5 → toast/登录弹窗;playerbar z2;跨窗口通信 = BroadcastChannel `vmp-desktop-lyrics-v1`(桌词小窗)
@@ -90,8 +91,8 @@
 
 ## 测试约定
 
-- `node scripts/cdp_test.js` — Node 24 零依赖 WebSocket CDP 驱动,需双服务运行 + Chrome;当前 212 项全绿(S12a-f:视觉面板/预设槽/运镜/壁纸/桌词小窗;S14:视频壁纸大文件上限判定;S15:登录态持久化 localStorage+hasLogin;S16:歌单按名称搜索兜底;S17:歌曲搜索+点播;S18:分享歌单封面补全+歌词抽屉封面;S19:新式概念版分享链接全量曲目;S20:音量数字联动;S21:本地音频播放(合成 WAV+刷新回放);S21b:ID3 解析;S22:本地歌单+移除 GC;S23:桌词三修复(墙钟同步/字号连点/滑杆守卫/尺寸钳制);S24:安全断言(Node 直连 httpRaw 断言 CORS 白名单/禁用路由 404/SSRF 4 类绕过 502/三安全头/CSP meta connect-src 完整/Set-Cookie 属性//auth/logout 清 9 键/错误脱敏);S25:旧登录态迁移;S26:播放模式(btn-mode 三态切换/vmp.playmode.v1 持久化/ended 实际切歌行为,本地双曲队列不依赖网络);S27:本地歌单增强(在线歌加入歌单/hash 去重/＋弹层选择/自定义封面 blob 可读);S10:登录入口 = 抽屉用户大标题(主页 login-btn 已移除,未登录文案+点击开弹窗+二维码流程);小窗断言用第二 CDP 会话 attachTarget,**勿在页面内 fetch CDP 端口**,CORS 报错会污染 S9 审计)
-- **安装版验证**:`REKG_ALLOW_DEBUG=1` + `--remote-debugging-port=9229` 启动安装版 + `VMP_CDP_USE_EXISTING=1 node scripts/cdp_test.js`(Chrome 回归 + 安装版同 212 项双绿为交付标准);**不带 REKG_ALLOW_DEBUG 时 9229 会被 strip**(CDP attach 失败先查该环境变量);attachTarget 已带重试(Electron 新 BrowserWindow 的 target 上 /json/list 有竞态,重开小窗偶发找不到)
+- `node scripts/cdp_test.js` — Node 24 零依赖 WebSocket CDP 驱动,需双服务运行 + Chrome;当前 224 项全绿(S12a-f:视觉面板/预设槽/运镜/壁纸/桌词小窗;S14:视频壁纸大文件上限判定;S15:登录态持久化 localStorage+hasLogin;S16:歌单按名称搜索兜底;S17:歌曲搜索+点播;S18:分享歌单封面补全+歌词抽屉封面;S19:新式概念版分享链接全量曲目;S20:音量数字联动;S21:本地音频播放(合成 WAV+刷新回放);S21b:ID3 解析;S22:本地歌单+移除 GC;S23:桌词三修复(墙钟同步/字号连点/滑杆守卫/尺寸钳制);S24:安全断言(Node 直连 httpRaw 断言 CORS 白名单/禁用路由 404/SSRF 4 类绕过 502/三安全头/CSP meta connect-src 完整/Set-Cookie 属性//auth/logout 清 9 键/错误脱敏);S25:旧登录态迁移;S26:播放模式(btn-mode 三态切换/vmp.playmode.v1 持久化/ended 实际切歌行为,本地双曲队列不依赖网络);S27:本地歌单增强(在线歌加入歌单/hash 去重/＋弹层选择/自定义封面 blob 可读);S28:生命周期内存优化(hidden 壁纸视频摘 src 解码休眠/rAF 挂起时间冻结/Web Audio 未播放挂起/show 全唤醒+播放链正常,经 `__APP_LIFECYCLE_API` 同路径驱动);S10:登录入口 = 抽屉用户大标题(主页 login-btn 已移除,未登录文案+点击开弹窗+二维码流程);小窗断言用第二 CDP 会话 attachTarget,**勿在页面内 fetch CDP 端口**,CORS 报错会污染 S9 审计)
+- **安装版验证**:`REKG_ALLOW_DEBUG=1` + `--remote-debugging-port=9229` 启动安装版 + `VMP_CDP_USE_EXISTING=1 node scripts/cdp_test.js`(Chrome 回归 + 安装版同 224 项双绿为交付标准);**不带 REKG_ALLOW_DEBUG 时 9229 会被 strip**(CDP attach 失败先查该环境变量);attachTarget 已带重试(Electron 新 BrowserWindow 的 target 上 /json/list 有竞态,重开小窗偶发找不到)
 - 测试要求**未登录态**(S10 走二维码弹窗路径);已登录态跑会因「点登录=退出确认」而失败
 - .state-box 类 = 加载态与错误空态共用 → 轮询等待错误态时须排除含 .spinner 的加载态
 - 操作 .nav-item/#search-input 前必须先 openDrawer()
@@ -128,6 +129,7 @@
 - **播放模式三态(2026-08-19)**:播放条 `.ctrl-row` 新增 `#btn-mode` 按钮(🔁顺序循环/🔂单曲循环/🔀随机播放,点击循环切换,非顺序模式点亮薄荷色 `.ctrl-mode.active`);`player.js` 只改 `next()` 选曲(`getPlayMode`/`setPlayMode`/`cyclePlayMode`,持久化 `vmp.playmode.v1`,标记 `window.__APP_PLAY_MODE`),音频链未动;顺带修复 `_playLocal` 同曲重播 bug(旧代码先 `_revokeLocalSrc` 再设 src,单曲/顺序单曲队列重播会复用已 revoke 的 objectURL → 必挂;现改为先设新 src、仅当 URL 不同才 revoke 旧,符合 local-music.js 头注释约定);测试 S26 十二项(三态切换/持久化/高亮/ended 实际切歌行为,本地双曲 WAV 队列零网络依赖)
 - **登录入口迁移到抽屉(2026-08-19)**:主页右上角 `#login-btn` 删除(样式/.pointer-events/z-index 注释/body[data-electron] 让位规则一并清理);登录入口唯一 = 抽屉用户大标题 `#drawer-user`(未登录→点击开登录弹窗;已登录→VIP 徽章(`formatVipLabel`)+ UID 副标题 + 两击退出,与旧顶栏行为一致);登录态判定 `api.hasLogin()`(localStorage vmp.login.v1),VIP 详情查询失败(上游 502/风控)不回退成「未登录」显示「已登录」保留退出能力;测试 S10 同步改造(login-btn 移除断言 + drawer-user 入口 + 未登录文案)
 - **本地歌单增强(2026-08-27)**:本地歌单可收入**在线歌**(推荐/搜索卡片 `.card-add` 角标、歌曲行 `.row-add` 尾钮 → `showAddToPlaylistUI` 玻璃弹层选歌单或新建);`local-music.js` 歌单新增 `onlineSongs` 内嵌条目(hash 去重)、`getPlaylistSongs` 本地+在线混合、`addSongToPlaylist`、封面三源 `setCustomCover`(上传图压缩 480×480 WebP 存 IDB key `plc-<id>`)/`setPlaylistCoverFromSong`(本地歌 coverId / 在线歌歌单级 img)/`getCustomCoverUrl`;封面优先级 自定义 > 歌单级 img > 本地歌 coverId > 首曲封面;「我的歌单」卡**点封面图**开 `showCoverPicker`(歌单内歌曲封面缩略图 + 本机图片上传);`syncLocalPlaylistCounts` 加歌后同步卡曲目数;测试 S27(在线歌入列/hash 去重/弹层加歌/自定义封面 blob 可读)
+- **生命周期内存优化(2026-08-27)**:新模块 `lifecycle.js`(active⇄hidden 状态机,双信号取或:document.visibilitychange + Electron 主进程 minimize/restore → `app:hidden` IPC;测试钩子 `__APP_LIFECYCLE`/`__APP_LIFECYCLE_API.hide()/show()`,与真实信号同路径)。隐藏时挂起 ①壁纸视频:`pause + removeAttribute('src') + load()` 释放解码帧(「壁纸线程休眠」;objectURL 保留不 revoke——大视频恢复零 IDB 重读,解码帧才是内存大头,压缩源 blob 浏览器落盘管理)②可视化:3D/2D 同契约 `setSuspended` 停 rAF,恢复重置时钟防大步进 ③Web Audio:`player.suspendGraph()`(仅未播放时挂起,播放中绝不挂——挂起即静音,音乐必须最小化后继续响);恢复 `resumeGraph()` + `_ensureGraph` 播放手势栈内兜底;桌面歌词不接入(心跳/推送跨最小化存活);Electron `app:metrics` handle(getAppMetrics 工作集快照,量化验证用);测试 S28 十二项
 
 ## Agent skills
 

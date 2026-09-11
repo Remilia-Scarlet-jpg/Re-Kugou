@@ -167,6 +167,9 @@ async function bootstrap() {
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('closed', () => { mainWindow = null; app.quit(); });
+  // 内存优化:最小化/还原通知渲染进程(lifecycle.js 据此挂起壁纸视频解码与 3D 渲染)
+  mainWindow.on('minimize', () => mainWindow.webContents.send('app:hidden', true));
+  mainWindow.on('restore', () => mainWindow.webContents.send('app:hidden', false));
   mainWindow.loadURL(`http://localhost:${WEB_PORT}`);
 }
 
@@ -215,6 +218,16 @@ ipcMain.on('win:toggle-maximize', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w) { w.isMaximized() ? w.unmaximize() : w.maximize(); }
 });
+
+// 内存指标(排查/测试用):渲染进程 invoke app:metrics 读取各进程工作集,
+// 用于验证最小化挂起前后的内存变化(生命周期优化的量化依据)
+ipcMain.handle('app:metrics', () =>
+  app.getAppMetrics().map((m) => ({
+    pid: m.pid,
+    type: m.type,
+    cpu: m.cpu?.percentCPUUsage ?? null,
+    memKB: Math.round((m.memory?.workingSetSize || 0) / 1024),
+  })));
 
 // ---------- 生命周期 ----------
 // 注意:注册必须在 fork 之后(bootstrap 内调用),模块顶层时 proc 还是 null

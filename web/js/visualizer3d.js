@@ -71,6 +71,7 @@ export class Visualizer3D {
     this.mouse = { x: 0.5, y: 0.5 };
     this.camAngle = 0;
     this.orbR = 1;
+    this._suspended = false; // 生命周期挂起态(窗口隐藏停 rAF,恢复时重置时钟)
     // DIY 控制台参数:构造时取快照,变化经订阅推送(destroy 时退订)
     this.fx = { ...getFx() };
     this._unsubFx = subscribe((path, value) => this._applyFx(path, value));
@@ -102,6 +103,18 @@ export class Visualizer3D {
   setPlaying(on) {
     this.playing = on;
     if (!on) this.visualActive = false;
+  }
+
+  /** 生命周期挂起(内存优化):窗口隐藏停 rAF;恢复时重置时钟防大步进跳变 */
+  setSuspended(on) {
+    if (this._suspended === on) return;
+    this._suspended = on;
+    if (on) {
+      cancelAnimationFrame(this._raf);
+    } else {
+      this.lastTs = performance.now();
+      this._raf = requestAnimationFrame((ts) => this._loop(ts));
+    }
   }
 
   /** DIY 控制台参数生效(fx.js 订阅推送);逐帧循环读取的参数无需即时应用 */
