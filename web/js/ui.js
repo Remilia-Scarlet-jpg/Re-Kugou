@@ -15,7 +15,6 @@ const songKey = (s) => s?.hash || s?.localId || '';
 
 const el = {
   main: $('main'),
-  hotChips: $('hot-chips'),
   searchInput: $('search-input'),
   searchBtn: $('search-btn'),
   npCover: $('np-cover'),
@@ -1058,26 +1057,6 @@ async function onDrawerUserClick() {
   toast('已退出登录');
 }
 
-// ---------- 热搜 chips ----------
-async function loadHotChips() {
-  try {
-    const groups = await api.getHotWords();
-    const words = groups.flatMap((g) => g.keywords).slice(0, 8);
-    if (!words.length) return;
-    el.hotChips.innerHTML =
-      '<span class="hot-label">🔥 热搜</span>' +
-      words.map((w) => `<button class="chip" title="${escapeHtml(w.reason || '')}">${escapeHtml(w.keyword)}</button>`).join('');
-    el.hotChips.querySelectorAll('.chip').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        el.searchInput.value = chip.textContent;
-        doSearch();
-      });
-    });
-  } catch {
-    /* 热搜加载失败不打扰用户 */
-  }
-}
-
 // ---------- 搜索 ----------
 function doSearch() {
   const kw = el.searchInput.value.trim();
@@ -1287,6 +1266,5 @@ export function initUI() {
   player.setVolume(Number(el.volume.value) / 100);
   updateVolumeUI();
   updatePlayerbar();
-  loadHotChips();
   showView('recommend');
 }

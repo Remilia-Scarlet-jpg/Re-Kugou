@@ -37,15 +37,6 @@ function normSong(raw) {
 
 // ---------- 发现 ----------
 
-/** 热搜词 → [{name:"热搜榜", keywords:[{keyword,reason}]}] */
-export async function getHotWords() {
-  const d = await getJson('/search/hot');
-  return (d?.data?.list || []).map((g) => ({
-    name: g.name || '热搜',
-    keywords: Array.isArray(g.keywords) ? g.keywords : [],
-  }));
-}
-
 /** 每日推荐 → Song[](time_length 新版为秒、旧版为毫秒,按量级兼容);
  * credentials 带 cookie:登录用户 userid 生效 → 个性化推荐;未登录 userid=0 → 通用推荐 30 首/天 */
 export async function getRecommendSongs() {

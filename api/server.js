@@ -138,12 +138,12 @@ async function getModulesDefinitions(modulesPath, specificRoute, doRequire = tru
   );
 }
 
-// 模块白名单(SECURITY_RULES 规则4):只注册前端实际使用的 13 条路由;
-// module/ 其余 156 个接口(短信验证码/手机登录/云盘上传等敏感能力)一律不注册 → 404。
-// 文件名映射路由:下划线转 /(如 search_hot.js → /search/hot)。
+// 模块白名单(SECURITY_RULES 规则4):只注册前端实际使用的 12 条路由;
+// module/ 其余 157 个接口(短信验证码/手机登录/云盘上传等敏感能力,含已停用的 search_hot)一律不注册 → 404。
+// 文件名映射路由:下划线转 /(如 rank_list.js → /rank/list)。
 // HTTP 服务(consturctServer)与编程式入口(main.js)共用本清单;启用新接口时在此追加文件名。
 const ALLOWED_MODULE_FILES = [
-  'search_hot', 'recommend_songs', 'rank_list', 'rank_audio', 'search',
+  'recommend_songs', 'rank_list', 'rank_audio', 'search',
   'album_songs', 'images', 'search_lyric', 'lyric', 'song_url',
   'login_qr_key', 'login_qr_check', 'user_vip_detail',
 ];

@@ -226,12 +226,13 @@ async function newTarget() {
     // S1 推荐页渲染
     await step('S1', async () => {
       const cards = await ev("document.querySelectorAll('.card').length");
-      const chips = await ev("document.querySelectorAll('#hot-chips .chip').length");
       const unknown = await ev("[...document.querySelectorAll('.card-sub')].filter(e=>e.textContent==='未知歌手').length");
       const name1 = await ev("document.querySelector('.card-name')?.textContent || ''");
       check('S1 推荐页:卡片 ≥20', cards >= 20, `${cards} 张`);
-      check('S1 推荐页:热搜 chips ≥5', chips >= 5, `${chips} 个`);
       check('S1 推荐页:歌手名已归一化(无「未知歌手」)', unknown === 0, `未知 ${unknown} 张,首张「${name1}」`);
+      // 热搜功能已移除:抽屉内不得再有 #hot-chips 容器或热搜词条
+      const hot = await ev("document.querySelectorAll('#hot-chips, .hot-chips, .hot-label').length");
+      check('S1 热搜已移除:抽屉无热搜容器/词条', hot === 0, `${hot} 个残留`);
     });
 
     // S2 点歌播放:URL 解析 → audio 播放 → Web Audio 管线构建
@@ -1252,10 +1253,13 @@ async function newTarget() {
     // S24 安全断言:Node 直连两个服务(不经浏览器,不受浏览器 CORS 拦截影响,验证服务端头)。
     // 阶段 2 首批:CORS 白名单 + 根服务三安全头;后续阶段追加禁用路由/SSRF/Cookie 属性断言
     await step('S24', async () => {
+      // CORS/Cookie 中间件先于路由注册,故响应头断言用一个 dot-free 路径即可;
+      // 此处复用已停用的 /search/hot(热搜功能已移除、白名单已摘除)兼验「未注册路由 404 不影响安全头」
       // 恶意 origin:api 不回 ACAO(反射任意 origin 已封)
       const evil = await httpRaw('GET', 'http://127.0.0.1:3000/search/hot', { Origin: 'http://evil.example.com' });
       check('S24 CORS:恶意 origin 无 ACAO', evil.headers['access-control-allow-origin'] === undefined,
         JSON.stringify({ acao: evil.headers['access-control-allow-origin'], status: evil.status }));
+      check('S24 白名单:/search/hot(热搜已移除)→ 404', evil.status === 404, `status=${evil.status}`);
       // 白名单 origin:精确回显 + 允许凭据
       const good = await httpRaw('GET', 'http://127.0.0.1:3000/search/hot', { Origin: 'http://localhost:3001' });
       check('S24 CORS:localhost:3001 精确 ACAO', good.headers['access-control-allow-origin'] === 'http://localhost:3001',
@@ -1298,6 +1302,7 @@ async function newTarget() {
         check(`S24 SSRF:${evilUrl.slice(0, 42)} → 502`, ok2, `status=${r.status}`);
       }
       // Cookie 属性(阶段 5):身份 cookie 统一 HttpOnly + Max-Age + SameSite=Lax
+      // (平台 cookie 注入中间件同样先于路由,未注册路径也带 Set-Cookie)
       const idc = await httpRaw('GET', 'http://127.0.0.1:3000/search/hot', { Cookie: '' });
       const setc = (idc.headers['set-cookie'] || []).map((s) => s.toLowerCase());
       check('S24 Cookie:身份 Set-Cookie 含 HttpOnly/Max-Age/SameSite',
