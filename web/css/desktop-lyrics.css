@@ -1,4 +1,6 @@
-/* 桌面歌词小窗:无边框深色玻璃(全站唯一 border 例外仅 .spinner,此处无任何边框) */
+/* 桌面歌词小窗:无背景样式(对齐酷狗桌面歌词,先生 2026-09-12 定调)——
+   窗口全透明,只留文字本身;可读性由深色描边(text-shadow)保证,不靠底衬。
+   全站唯一 border 例外仅 .spinner,此处依旧无任何边框。 */
 :root {
   --lyric-primary: #f6fdff;
   --lyric-secondary: #a8f6ff;
@@ -6,16 +8,20 @@
   --lyric-glow: #9cffdf;
   --dl-font-size: 40px;
   --dl-opacity: 0.92;
+  /* 无背景下的文字描边:深色多层阴影 = 任何壁纸上都读得清 */
+  --dl-outline: 0 1px 2px rgba(0, 0, 0, .92), 0 0 6px rgba(0, 0, 0, .78), 0 0 14px rgba(0, 0, 0, .5);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; background: #0a0d10; }
+html, body { height: 100%; overflow: hidden; background: transparent; }
+/* 浏览器弹窗模式:普通窗口默认白底(白字会彻底看不见)→ 保留深色底;
+   Electron 透明窗(transparent:true)才是真·无背景,故只在非 Electron 下补底 */
+html:not([data-electron]), html:not([data-electron]) body { background: #0a0d10; }
 body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
 #dl-root {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(112deg, rgba(62, 66, 70, .92) 0%, rgba(8, 12, 14, .94) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+  background: transparent;
   padding: 0 20px 12px;
   user-select: none;
   -webkit-user-select: none;
@@ -38,6 +44,7 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: var(--dl-outline);
 }
 .dl-ctrls { display: flex; align-items: center; gap: 6px; }
 .chip {
@@ -45,19 +52,20 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
   border-radius: 12px;
   padding: 3px 9px;
   font-size: 12px;
-  background: rgba(255, 255, 255, .07);
+  background: rgba(10, 13, 17, .42);
   color: var(--lyric-secondary);
   cursor: pointer;
+  text-shadow: var(--dl-outline);
   transition: background .15s ease;
 }
-.chip:hover { background: rgba(0, 245, 212, .16); color: #fff; }
+.chip:hover { background: rgba(0, 245, 212, .28); color: #fff; }
 #dl-opacity { width: 64px; accent-color: #00f5d4; cursor: pointer; }
 .dl-current {
   font-size: var(--dl-font-size);
   font-weight: 600;
   color: var(--lyric-primary);
   opacity: var(--dl-opacity);
-  text-shadow: 0 0 14px var(--lyric-glow);
+  text-shadow: var(--dl-outline), 0 0 22px rgba(0, 245, 212, .22);
   line-height: 1.25;
   text-align: center;
   overflow: hidden;
@@ -68,7 +76,7 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
 }
 .dl-current.nodata {
   color: var(--lyric-secondary);
-  text-shadow: none;
+  text-shadow: var(--dl-outline);
   font-size: calc(var(--dl-font-size) * .5);
 }
 .dl-current.reenter { animation: lyricIn .28s ease; }
@@ -85,6 +93,7 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: var(--dl-outline);
 }
 .dl-meta {
   margin-top: auto;
@@ -96,14 +105,12 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: none;
+  text-shadow: var(--dl-outline);
 }
 
-/* Electron 模式:无边框透明置顶窗 → 页面透明,卡片自带圆角与投影;仍无任何 border */
+/* Electron 模式:窗口本身透明(transparent:true),页面不再画卡片底/圆角/投影 */
 html[data-electron], html[data-electron] body { background: transparent; }
-html[data-electron] #dl-root {
-  border-radius: 18px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .08);
-}
+html[data-electron] #dl-root { background: transparent; }
 /* Electron 原生窗口拖拽:手柄走 app-region(与系统边缘 resize 互斥,拖动不误触放大);
    手柄内的控件(A−/A+/滑杆/✕)恢复可点(no-drag)。浏览器模式忽略(app-region 无效)。 */
 html[data-electron] #dl-drag { -webkit-app-region: drag; }

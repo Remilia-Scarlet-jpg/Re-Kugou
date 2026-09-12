@@ -8,6 +8,7 @@ import { Visualizer } from './visualizer.js';
 import { Visualizer3D } from './visualizer3d.js';
 import { saveQueue, loadQueue } from './store.js';
 import { initFxPanel } from './fx-panel.js';
+import { getFx, subscribe } from './fx.js';
 import { initWallpaper } from './wallpaper.js';
 import { initDesktopLyrics } from './desktop-lyrics.js';
 import { initLifecycle, onHidden, onVisible } from './lifecycle.js';
@@ -33,17 +34,31 @@ if (!viz) {
 player.on('analyserready', (a) => viz.setAnalyser(a));
 player.on('statechange', (s) => viz.setPlaying(s === 'playing'));
 
-// ---------- 生命周期挂起(内存优化) ----------
+// ---------- 生命周期挂起(内存优化)+ 粒子场景总开关 ----------
 // 窗口隐藏(最小化/标签切换/锁屏)→ 停可视化 rAF + 挂起 Web Audio(播放中不挂,音乐继续响);
 // 壁纸视频解码休眠由 wallpaper.js 自行订阅;桌面歌词不接入(心跳必须跨最小化存活)。
+// fx.sceneEnabled=false(视觉面板「粒子效果」关)→ 画布隐藏 + rAF 挂起,与隐藏态取或,互不覆盖。
+let winHidden = false;
+function applySceneFx() {
+  const off = getFx().sceneEnabled === false;
+  // 用 visibility 而非 display:none:画布尺寸仍可测,渲染器 resize 逻辑不受影响
+  canvas.style.visibility = off ? 'hidden' : '';
+  viz.setSuspended(winHidden || off);
+}
 onHidden(() => {
-  viz.setSuspended(true);
+  winHidden = true;
+  applySceneFx();
   player.suspendGraph();
 });
 onVisible(() => {
-  viz.setSuspended(false);
+  winHidden = false;
+  applySceneFx();
   player.resumeGraph();
 });
+subscribe((path) => {
+  if (path === 'sceneEnabled') applySceneFx();
+});
+applySceneFx();
 
 // ---------- 预取下一首的播放地址(URL 带时间戳会过期,提前备好减少切歌等待) ----------
 player.on('songchange', ({ index }) => {

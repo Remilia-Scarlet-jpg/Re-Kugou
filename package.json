@@ -1,7 +1,7 @@
 {
   "name": "star-music",
   "productName": "REKG",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "RE:KG - 可视化音乐播放器(酷狗数据源,仅供学习交流)",
   "author": "vmp",

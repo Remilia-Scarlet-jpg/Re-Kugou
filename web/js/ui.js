@@ -1102,16 +1102,28 @@ function updateVolumeUI() {
   el.btnMute.textContent = player.muted ? '🔇' : '🔊';
 }
 
-/** 播放模式按钮:图标 + 提示 + 高亮(非顺序循环模式点亮薄荷色);文案集中本文件 */
+/** 播放模式按钮:图标 + 提示 + 状态标记(与兄弟钮同为灰,不再点亮薄荷色)。
+ *  图标必须是单色 SVG 描边(currentColor 跟随按钮色):🔁/🔂/🔀 是彩色 emoji,
+ *  由 Segoe UI Emoji 自带上色(蓝底白箭头),CSS 的 color 对它无效。 */
 const MODE_UI = {
-  order: { icon: '🔁', label: '顺序循环' },
-  'loop-one': { icon: '🔂', label: '单曲循环' },
-  shuffle: { icon: '🔀', label: '随机播放' },
+  order: {
+    label: '顺序循环',
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 5H8a4 4 0 0 0-4 4"/><path d="m17 2 3 3-3 3"/><path d="M4 19h12a4 4 0 0 0 4-4"/><path d="m7 22-3-3 3-3"/></svg>',
+  },
+  'loop-one': {
+    label: '单曲循环',
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 5H8a4 4 0 0 0-4 4"/><path d="m17 2 3 3-3 3"/><path d="M4 19h12a4 4 0 0 0 4-4"/><path d="m7 22-3-3 3-3"/><path d="M11.4 10.4 13 9.2V15"/></svg>',
+  },
+  shuffle: {
+    label: '随机播放',
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3.1a4 4 0 0 1 3.3 1.8l5.2 6.4A4 4 0 0 0 18 16h3"/><path d="m18 13 3 3-3 3"/><path d="M3 18h3.1a4 4 0 0 0 3.3-1.8l5.2-6.4A4 4 0 0 1 18 8h3"/><path d="m18 5 3 3-3 3"/></svg>',
+  },
 };
 
 function updateModeBtn(mode) {
   const m = MODE_UI[mode] || MODE_UI.order;
-  el.btnMode.textContent = m.icon;
+  el.btnMode.innerHTML = m.icon;
+  el.btnMode.dataset.mode = MODE_UI[mode] ? mode : 'order'; // 测试标记(图标是 SVG,textContent 恒为空)
   el.btnMode.title = `播放模式:${m.label} · 点击切换`;
   el.btnMode.classList.toggle('active', mode !== 'order');
 }

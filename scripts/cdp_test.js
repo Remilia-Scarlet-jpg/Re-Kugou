@@ -21,6 +21,7 @@
  *      播放模式 S26(btn-mode 三态·vmp.playmode.v1 持久化·ended 切歌行为)→
  *      本地歌单增强 S27(在线歌加入歌单·弹层选择·自定义封面)→
  *      生命周期内存优化 S28(hidden 壁纸视频解码休眠·rAF 挂起·Web Audio 挂起·恢复)→
+ *      界面调整 S29(上/下一首 SVG 图标·模式钮同灰·抽屉避让播放条·桌词无背景·粒子开关)→
  *      全程无未捕获异常。每步失败互不阻断。
  */
 const { spawn } = require('node:child_process');
@@ -1354,8 +1355,9 @@ async function newTarget() {
       // 重复运行安全:清持久键 + 内存态归位 order(构造时可能从上次运行残留的键恢复了非默认模式)
       await ev("localStorage.removeItem('vmp.playmode.v1')");
       await ev("(async()=>{const {player}=await import('/js/player.js'); player.clear(); player.setPlayMode('order'); return true;})()");
-      check('S26 模式:默认顺序循环(🔁)', (await ev("window.__APP_PLAY_MODE")) === 'order'
-        && (await ev("document.getElementById('btn-mode').textContent")) === '🔁',
+      check('S26 模式:默认顺序循环', (await ev("window.__APP_PLAY_MODE")) === 'order'
+        && (await ev("document.getElementById('btn-mode').dataset.mode")) === 'order'
+        && (await ev("!!document.querySelector('#btn-mode svg')")) === true,
         String(await ev("window.__APP_PLAY_MODE")));
       // 本地双曲队列(A 30s / B 10s):ended 行为断言不依赖网络
       await mkWavFixtures();
@@ -1371,14 +1373,14 @@ async function newTarget() {
       await poll("document.getElementById('audio').src.startsWith('blob:') && !document.getElementById('audio').paused", 15000);
       // 三态循环切换:图标 / 标记 / 持久化 / 高亮 四联动
       await ev("document.getElementById('btn-mode').click()");
-      check('S26 切换:→ 单曲循环(🔂 + 标记)', await poll("window.__APP_PLAY_MODE === 'loop-one' && document.getElementById('btn-mode').textContent === '🔂'", 3000),
+      check('S26 切换:→ 单曲循环(标记)', await poll("window.__APP_PLAY_MODE === 'loop-one' && document.getElementById('btn-mode').dataset.mode === 'loop-one'", 3000),
         String(await ev("window.__APP_PLAY_MODE")));
       check('S26 持久化:vmp.playmode.v1=loop-one', (await ev("localStorage.getItem('vmp.playmode.v1')")) === 'loop-one');
-      check('S26 高亮:非顺序模式点亮薄荷色', await ev("document.getElementById('btn-mode').classList.contains('active')") === true);
+      check('S26 标记:非顺序模式带 active(class 仅状态标记,配色见 S29)', await ev("document.getElementById('btn-mode').classList.contains('active')") === true);
       await ev("document.getElementById('btn-mode').click()");
-      check('S26 切换:→ 随机播放(🔀)', await poll("window.__APP_PLAY_MODE === 'shuffle' && document.getElementById('btn-mode').textContent === '🔀'", 3000));
+      check('S26 切换:→ 随机播放', await poll("window.__APP_PLAY_MODE === 'shuffle' && document.getElementById('btn-mode').dataset.mode === 'shuffle'", 3000));
       await ev("document.getElementById('btn-mode').click()");
-      check('S26 切换:→ 顺序循环(🔁 + 高亮熄灭)', await poll("window.__APP_PLAY_MODE === 'order' && document.getElementById('btn-mode').textContent === '🔁'", 3000)
+      check('S26 切换:→ 顺序循环(+ active 熄灭)', await poll("window.__APP_PLAY_MODE === 'order' && document.getElementById('btn-mode').dataset.mode === 'order'", 3000)
         && (await ev("document.getElementById('btn-mode').classList.contains('active')")) === false);
       // ended 行为:单曲循环 → 重播当前曲(进度归零继续播)
       await ev("(async()=>{const {player}=await import('/js/player.js'); player.setPlayMode('loop-one'); const a=document.getElementById('audio'); a.currentTime=a.duration-0.15; return true;})()");
@@ -1509,6 +1511,94 @@ async function newTarget() {
       await ev("window.__APP_LOCAL_API.reset()");
       await ev("window.__APP_WALLPAPER_API.clearWallpaper()");
       await ev("window.__APP_LIFECYCLE_API.show()");
+    });
+
+    // S29 界面调整(2026-09-12):播放条上/下一首改「单三角+竖条」SVG · 播放模式钮与兄弟钮同灰 ·
+    // 右侧抽屉上下收高(底边停在播放条上方)· 桌词无背景(酷狗同款)+ 文字描边 · 粒子效果总开关
+    await step('S29', async () => {
+      const is3d2 = (await ev("window.__APP_STARFIELD_3D")) === '1';
+      const vizKey2 = is3d2 ? '__APP_VIZ3D' : '__APP_VIZ2D';
+      // 1) 上/下一首 = 单三角 + 竖条 SVG(fill=currentColor 跟随按钮色),不再是 ⏮/⏭ 字形
+      const icons = await ev(`(()=>{
+        const p=document.getElementById('btn-prev'), n=document.getElementById('btn-next');
+        const shape=(b)=>!!b.querySelector('svg path') && !!b.querySelector('svg rect');
+        return {
+          svg: shape(p) && shape(n),
+          glyph: /⏮|⏭/.test(p.textContent + n.textContent),
+          fillSame: getComputedStyle(p.querySelector('svg')).fill === getComputedStyle(p).color
+                 && getComputedStyle(n.querySelector('svg')).fill === getComputedStyle(n).color,
+          w: Math.round(p.querySelector('svg').getBoundingClientRect().width),
+        };
+      })()`);
+      check('S29 播放条:上/下一首为「单三角+竖条」SVG', icons?.svg === true && icons?.glyph === false, JSON.stringify(icons));
+      check('S29 播放条:图标 fill 跟随按钮色(灰)+ 尺寸 ≥16px', icons?.fillSame === true && icons?.w >= 16, `w=${icons?.w}`);
+      // 2) 播放模式钮:active 时也与兄弟钮同灰(不再薄荷高亮)
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.setPlayMode('loop-one'); return true;})()");
+      await poll("document.getElementById('btn-mode').classList.contains('active')", 2000);
+      const modeColor = await ev(`(()=>{
+        const m=document.getElementById('btn-mode'), p=document.getElementById('btn-prev');
+        const svg=m.querySelector('svg');
+        return {
+          active: m.classList.contains('active'),
+          mode: getComputedStyle(m).color, prev: getComputedStyle(p).color,
+          svg: !!svg, stroke: svg ? getComputedStyle(svg).stroke : '',
+          fill: svg ? getComputedStyle(svg).fill : '',
+          emoji: /🔁|🔂|🔀/.test(m.innerHTML),
+        };
+      })()`);
+      check('S29 模式钮:单色 SVG 描边 + 与兄弟钮同灰(无彩色 emoji)',
+        modeColor?.active === true && modeColor.svg === true && modeColor.emoji === false
+        && modeColor.stroke === modeColor.prev && modeColor.fill === 'none',
+        JSON.stringify(modeColor));
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.setPlayMode('order'); return true;})()");
+      // 3) 右抽屉:上下收高,底边停在播放条上方
+      await openDrawer();
+      const geo = await ev(`(()=>{
+        const d=document.getElementById('right-drawer').getBoundingClientRect();
+        const pb=document.querySelector('.playerbar').getBoundingClientRect();
+        return { top: Math.round(d.top), gap: Math.round(pb.top - d.bottom) };
+      })()`);
+      check('S29 抽屉:底边停在播放条上方(间隙 ≥8px)', geo?.gap >= 8, JSON.stringify(geo));
+      check('S29 抽屉:顶部内收(top ≥16px,上下一起收高)', geo?.top >= 16, `top=${geo?.top}`);
+      // 4) 桌词小窗:无背景(酷狗同款),可读性靠深色描边而非底衬
+      await ev("document.getElementById('desktop-lyrics-btn').click()");
+      const dlOpened = await poll("window.__APP_DESKTOP_LYRICS === '1'", 3000);
+      const tdl = dlOpened ? await attachTarget('desktop-lyrics.html') : null;
+      check('S29 桌词:小窗目标存在', !!tdl);
+      if (tdl) {
+        const ws3 = new WebSocket(tdl.webSocketDebuggerUrl);
+        await new Promise((res, rej) => { ws3.onopen = res; ws3.onerror = () => rej(new Error('ws3 connect failed')); });
+        const cdp3 = new CDP(ws3);
+        await cdp3.send('Runtime.enable');
+        const ev3 = async (expr) => (await cdp3.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result?.value;
+        const bg = await ev3(`(()=>{
+          const r=getComputedStyle(document.getElementById('dl-root'));
+          const electron=document.documentElement.hasAttribute('data-electron');
+          return {
+            electron,
+            rootClear: r.backgroundImage==='none' && r.backgroundColor==='rgba(0, 0, 0, 0)',
+            bodyClear: !electron || getComputedStyle(document.body).backgroundColor==='rgba(0, 0, 0, 0)',
+            outline: getComputedStyle(document.getElementById('dl-current')).textShadow.includes('rgba(0, 0, 0'),
+          };
+        })()`);
+        check('S29 桌词:根节点无背景(无渐变/无底衬)', bg?.rootClear === true && bg?.bodyClear === true, JSON.stringify(bg));
+        check('S29 桌词:文字深色描边(无底衬也可读)', bg?.outline === true);
+        try { ws3.close(); } catch {}
+      }
+      await ev("window.__APP_DESKTOP_LYRICS === '1' && document.getElementById('desktop-lyrics-btn').click(), true");
+      await poll("window.__APP_DESKTOP_LYRICS === '0'", 3000);
+      // 5) 粒子效果总开关:关 → 画布隐藏 + rAF 挂起;开 → 全恢复
+      await ev("document.querySelector('.drawer-tab-btn[data-tab=visual]').click()");
+      check('S29 粒子:视觉面板存在「粒子效果」开关', (await ev("!!document.getElementById('fx-sceneEnabled')")) === true);
+      await ev("document.getElementById('fx-sceneEnabled').click()");
+      check('S29 粒子:关闭 → 画布隐藏 + rAF 挂起', await poll(
+        `window.__APP_FX.sceneEnabled === false && getComputedStyle(document.getElementById('starfield')).visibility === 'hidden' && window.${vizKey2}._suspended === true`, 3000),
+        `sceneEnabled=${await ev('window.__APP_FX.sceneEnabled')}`);
+      await ev("document.getElementById('fx-sceneEnabled').click()");
+      check('S29 粒子:再开 → 画布与 rAF 全恢复', await poll(
+        `window.__APP_FX.sceneEnabled === true && getComputedStyle(document.getElementById('starfield')).visibility === 'visible' && !window.${vizKey2}._suspended`, 3000));
+      check('S29 粒子:开关持久化 vmp.fx.v1', await poll("JSON.parse(localStorage.getItem('vmp.fx.v1')||'{}').sceneEnabled === true", 3000));
+      check('S29 粒子:开关按钮文案联动(开)', (await ev("document.getElementById('fx-sceneEnabled').textContent")) === '开');
     });
 
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)

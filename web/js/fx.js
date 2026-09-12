@@ -11,6 +11,7 @@ const SAVE_DELAY = 300;
 /** 全部可调参数默认值(每字段含义见 FX_SPECS 注释) */
 export const FX_DEFAULTS = {
   // 场景(visualizer3d)
+  sceneEnabled: true, // 背景粒子场景总开关(false = 隐藏画布 + 挂起 rAF,粒子完全不渲染)
   orbScale: 1.0,      // 球体整体大小(乘 orbR)
   reactScale: 1.0,    // 律动强度(bass 位移系数)
   orbSize: 1.0,       // 球体粒子大小
@@ -36,6 +37,7 @@ export const FX_DEFAULTS = {
 
 /** 归一化规格:[min, max, step];step 只对数字字段取整;bool 字段用 [0,1,1] 占位 */
 export const FX_SPECS = {
+  sceneEnabled: [0, 1, 1],
   orbScale: [0.5, 2.0, 0.05],
   reactScale: [0, 2.0, 0.05],
   orbSize: [0.5, 2.0, 0.05],

@@ -237,9 +237,9 @@ img { -webkit-user-drag: none; }
 /* ============ 右侧浏览抽屉 ============ */
 .right-drawer {
   position: fixed;
-  top: 12px;
+  top: 20px;
   right: 12px;
-  bottom: 12px;
+  bottom: 100px; /* 底边停在播放条上方(12px 距底 + 76px 高 + 12px 余量),先生 2026-09-12 定调 */
   width: min(420px, 92vw);
   background: linear-gradient(112deg, rgba(62, 66, 70, 0.24), rgba(18, 22, 26, 0.20) 48%, rgba(8, 12, 14, 0.24));
   backdrop-filter: blur(14px) saturate(1.25);
@@ -703,6 +703,8 @@ img { -webkit-user-drag: none; }
 }
 .ctrl:hover { color: var(--text); }
 .ctrl:active { transform: scale(0.88); }
+/* 上/下一首 = 单三角 + 竖条图标(>| / |<),fill 跟随按钮色,与兄弟钮同为灰 */
+.ctrl svg { width: 20px; height: 20px; display: block; fill: currentColor; }
 .ctrl-play {
   width: 44px;
   height: 44px;
@@ -713,8 +715,11 @@ img { -webkit-user-drag: none; }
   box-shadow: 0 0 18px rgba(0, 245, 212, 0.45);
 }
 .ctrl-play:hover { filter: brightness(1.15); color: #fff; }
-/* 播放模式钮:非顺序循环模式(单曲循环/随机)点亮薄荷色,无边框铁律不变 */
-.ctrl-mode.active { color: var(--accent-1); }
+/* 播放模式钮:与兄弟钮同样式的灰(先生 2026-09-12 定调,不再点亮薄荷色);
+   .active 仅保留为「非顺序模式」的状态标记(ui.js 与 S26 断言依赖),不参与配色。
+   ⚠️ 图标必须是单色 SVG:🔁/🔂/🔀 是彩色 emoji(Segoe UI Emoji 自带上色),CSS 的 color 压不住它 */
+.ctrl-mode.active { color: var(--text-2); }
+.ctrl-mode svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 .progress { display: flex; align-items: center; gap: 10px; }
 .time { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; min-width: 36px; }
@@ -1002,6 +1007,7 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   .volume { width: auto; }
   /* 窄视口:歌词抽屉压回可用宽度,底部避让播放条(76px 高 + 12px 距底 + 余量) */
   .lyric-drawer { width: min(380px, calc(100vw - 24px)); bottom: 108px; }
+  .right-drawer { bottom: 108px; }
 }
 
 /* ============ 登录弹窗(入口在抽屉用户大标题) ============ */

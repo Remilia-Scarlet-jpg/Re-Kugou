@@ -14,7 +14,7 @@ const SLOT_COUNT = 4;
 const FX_GROUPS = [
   {
     title: '场景',
-    items: ['orbScale', 'reactScale', 'orbSize', 'starSize', 'starSpeed', 'ringSpeed', 'shockEnabled'],
+    items: ['sceneEnabled', 'orbScale', 'reactScale', 'orbSize', 'starSize', 'starSpeed', 'ringSpeed', 'shockEnabled'],
   },
   {
     title: '运镜',
@@ -31,6 +31,7 @@ const FX_GROUPS = [
 ];
 
 const LABELS = {
+  sceneEnabled: '粒子效果',
   orbScale: '球体大小', reactScale: '律动强度', orbSize: '球体粒子', starSize: '星尘大小',
   starSpeed: '星场转速', ringSpeed: '光环转速', shockEnabled: '节拍冲击波',
   cineEnabled: '运镜开关', cineShake: '运镜幅度', cineIdle: '闲时漂移', cineKick: '节拍冲击',
