@@ -23,6 +23,8 @@ const el = {
   fontDown: document.getElementById('dl-font-down'),
   fontUp: document.getElementById('dl-font-up'),
   opacity: document.getElementById('dl-opacity'),
+  ctrls: document.getElementById('dl-ctrls'),
+  lock: document.getElementById('dl-lock'),
   close: document.getElementById('dl-close'),
 };
 
@@ -33,9 +35,11 @@ let lastLineIdx = -1;
 let lastHash = '';
 let lastText = '';
 let dragging = false; // 用户拖动透明度滑杆时,快照流不得回写顶回
+let locked = false;   // 锁定态(状态来自主窗快照/广播;ES 模块严格模式,必须先声明
 
 window.__APP_DESKTOP_LYRICS = '1';
 window.__APP_LYRIC_RX_COUNT = 0;
+window.__APP_DL_LOCKED = '0'; // 测试标记:锁定 = 主窗已让小窗鼠标穿透(安装版)
 
 // Electron 模式(preload 注入):页面透明化(无边框透明置顶窗)
 if (window.__APP_CONFIG__?.electron) {
@@ -43,9 +47,76 @@ if (window.__APP_CONFIG__?.electron) {
   window.__APP_DL_ELECTRON = '1';
 }
 
+/** 锁定态:仅切样式与光标/拖拽开关;真正的「鼠标穿透」由主进程 setIgnoreMouseEvents 完成,
+ *  状态唯一来源是主窗。锁定时**控件条仍要能点**(否则小窗自己解不了锁),规则:
+ *    interactive = 鼠标正停在控制条上 ‖ 最近 2s 内动过鼠标
+ *  其余时刻整窗穿透(鼠标不动就彻底穿透);浏览器模式没有穿透,这条规则只驱动淡入淡出。 */
+const LOCK_HIT_MS = 2000; // 鼠标动过之后的临时可点窗口
+let hitHot = false;       // 鼠标是否正停在控制条上
+let lockHitUntil = 0;     // 临时可点的截止时间戳
+let lockHitTimer = null;
+
+const lockInteractive = () => hitHot || Date.now() < lockHitUntil;
+
+/** 把「是否让鼠标穿透」下发给主进程:锁定时只在可点窗口内不穿透 */
+function syncIgnore() {
+  const interactive = !locked || lockInteractive();
+  window.vmpShell?.dlIgnore?.(!interactive); // 浏览器模式无此 API,自动 no-op
+  document.documentElement.dataset.hit = interactive ? '1' : '0';
+}
+
+/** 鼠标动过 → 开一个 2s 的可点窗口(每次移动都续期) */
+function noteMove() {
+  lockHitUntil = Date.now() + LOCK_HIT_MS;
+  clearTimeout(lockHitTimer);
+  lockHitTimer = setTimeout(() => {
+    lockHitUntil = 0;
+    syncIgnore();
+  }, LOCK_HIT_MS + 60);
+  syncIgnore();
+}
+
+function applyLock(next) {
+  locked = !!next;
+  window.__APP_DL_LOCKED = locked ? '1' : '0';
+  document.documentElement.dataset.locked = locked ? '1' : '0';
+  if (!locked) {
+    hitHot = false;
+    lockHitUntil = 0;
+    clearTimeout(lockHitTimer);
+  }
+  if (el.lock) {
+    el.lock.textContent = locked ? '🔒' : '🔓';
+    el.lock.title = locked
+      ? '已锁定(鼠标不动时整窗穿透;动一下鼠标即可点击本条解锁)'
+      : '锁定(锁定后鼠标不动时整窗穿透,动一下鼠标就能点回来)';
+  }
+  syncIgnore();
+}
+
+// 锁定态的命中判定(两种模式都注册:浏览器模式只用于驱动控制条淡入淡出)
+const HIT_PAD = 8; // 控制条外扩 8px 也算「停在控制条上」
+document.addEventListener('mousemove', (e) => {
+  if (!locked) return;
+  const r = el.ctrls?.getBoundingClientRect();
+  hitHot = !!r
+    && e.clientX >= r.left - HIT_PAD && e.clientX <= r.right + HIT_PAD
+    && e.clientY >= r.top - HIT_PAD && e.clientY <= r.bottom + HIT_PAD;
+  noteMove();
+});
+document.addEventListener('mouseleave', () => {
+  if (!locked) return;
+  hitHot = false;
+  lockHitUntil = 0;
+  clearTimeout(lockHitTimer);
+  syncIgnore();
+});
+window.__APP_DL_HIT = () => lockInteractive(); // 测试标记
+
 // ---------- 快照应用 ----------
 function applySnapshot(s) {
   snapshot = s;
+  if (typeof s.locked === 'boolean') applyLock(s.locked);
   window.__APP_LYRIC_RX_COUNT++;
   window.__APP_DL_STATE = {
     hash: s.hash, title: s.title, artist: s.artist,
@@ -95,6 +166,7 @@ bc.onmessage = (e) => {
   const m = e.data || {};
   lastMsgAt = Date.now();
   if (m.type === 'state') applySnapshot(m.snapshot);
+  else if (m.type === 'lock') applyLock(m.locked);
   else if (m.type === 'bye') window.close();
 };
 
@@ -120,6 +192,7 @@ setInterval(() => {
 let dragStart = null;
 if (!window.__APP_CONFIG__?.electron) {
   el.drag.addEventListener('pointerdown', (e) => {
+    if (locked) return; // 锁定后禁止拖动(安装版整窗穿透,浏览器模式靠这里挡)
     if (e.target.closest('button, input')) return;
     dragStart = { x: e.screenX, y: e.screenY };
     el.drag.setPointerCapture(e.pointerId);
@@ -152,3 +225,5 @@ el.opacity.addEventListener('input', () => {
   bc.postMessage({ type: 'setFx', path: 'dlOpacity', value: v });
 });
 el.close.addEventListener('click', () => window.close());
+// 锁定请求走主窗(状态与 IPC 都在主窗):小窗只发意图
+el.lock?.addEventListener('click', () => bc.postMessage({ type: 'toggle-lock' }));

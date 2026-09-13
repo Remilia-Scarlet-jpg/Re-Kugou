@@ -20,6 +20,10 @@ const PUSH_MIN_MS = 150;
 let win = null;
 let bc = null;
 let lastPushAt = 0;
+// 锁定态(状态唯一来源 = 主窗,持久化在 vmp.desktopLyrics.v1.locked):
+// Electron 下锁定 = 主进程对小窗 setIgnoreMouseEvents(true) → 整窗鼠标穿透;
+// 浏览器 popup 无穿透能力,锁定退化为「禁止拖动 + 控件不可点」,故文案要区分。
+let locked = false;
 
 // 窗口尺寸钳制:最大化后心跳若原样持久化,重开即全屏(只能放大不能缩小)
 const clampW = () => Math.floor(window.screen.availWidth * 0.8);
@@ -30,6 +34,37 @@ function loadWinCfg() {
 }
 function saveWinCfg(c) {
   try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch { /* 忽略 */ }
+}
+const loadLock = () => !!loadWinCfg()?.locked;
+function saveLock(v) {
+  saveWinCfg({ ...(loadWinCfg() || {}), locked: !!v });
+}
+
+/** 主窗播放条上的锁按钮:仅当小窗开着时可见(锁上后小窗自己点不到,这是唯一解锁入口) */
+function updateLockBtn() {
+  const btn = document.getElementById('dl-lock-btn');
+  if (!btn) return;
+  btn.hidden = !(win && !win.closed);
+  btn.textContent = locked ? '🔒' : '🔓';
+  btn.title = locked ? '解锁桌面歌词(也可在小窗顶部控制条上点 🔒)' : '锁定桌面歌词(锁定后歌词区域鼠标穿透)';
+  btn.classList.toggle('dl-lock-on', locked);
+}
+
+function setLocked(next, opts = {}) {
+  locked = !!next;
+  saveLock(locked);
+  window.__APP_DL_LOCKED = locked ? '1' : '0';
+  // 穿透不是这里下发的:小窗自己按「鼠标是否停在控件条上」动态开关(见 view 的 dlIgnore),
+  // 主窗只负责状态与广播——否则锁上后小窗点不到东西,只能回主窗解锁
+  bc?.postMessage({ type: 'lock', locked });
+  updateLockBtn();
+  if (opts.silent) return;
+  if (!locked) return toast('桌面歌词已解锁');
+  toast(
+    window.__APP_CONFIG__?.electron
+      ? '桌面歌词已锁定:歌词区域鼠标穿透,把鼠标移回小窗顶部控制条即可点击解锁'
+      : '桌面歌词已锁定(锁定期间禁止拖动;鼠标穿透需安装版)'
+  );
 }
 
 function ensureChannel() {
@@ -44,6 +79,8 @@ function ensureChannel() {
       } else if (m.type === 'setFx') {
         setFx(m.path, m.value);
         push(true);
+      } else if (m.type === 'toggle-lock') {
+        setLocked(!locked); // 小窗点了 🔒:状态与 IPC 都留在主窗处理
       }
     };
   }
@@ -67,6 +104,7 @@ function buildSnapshot() {
     },
     fontSize: getFx().dlFontSize,
     opacity: getFx().dlOpacity,
+    locked, // 小窗据此同步锁定外观(穿透由主进程负责,这里只是状态同步)
   };
 }
 
@@ -95,7 +133,13 @@ function openDesktopLyrics() {
     return;
   }
   window.__APP_DESKTOP_LYRICS = '1';
+  locked = loadLock();
   push(true);
+  updateLockBtn();
+  // 新开的 BrowserWindow 默认不穿透:持久化的锁定态要在子窗创建后重新下发(IPC + 广播各一次)
+  setTimeout(() => {
+    if (win && !win.closed) setLocked(locked, { silent: true });
+  }, 400);
 }
 
 function closeDesktopLyrics() {
@@ -105,6 +149,7 @@ function closeDesktopLyrics() {
   }
   win = null;
   window.__APP_DESKTOP_LYRICS = '0';
+  updateLockBtn();
 }
 
 export function initDesktopLyrics() {
@@ -113,6 +158,12 @@ export function initDesktopLyrics() {
     if (win && !win.closed) closeDesktopLyrics();
     else openDesktopLyrics();
   });
+  // 锁定按钮:仅在小窗开着时可见;点击 → 切换穿透
+  const lockBtn = document.getElementById('dl-lock-btn');
+  lockBtn?.addEventListener('click', () => setLocked(!locked));
+  locked = loadLock();
+  window.__APP_DL_LOCKED = locked ? '1' : '0';
+  updateLockBtn();
   // 常驻监听(win 为空时 push 自短路,零开销)
   player.on('timeupdate', () => push(false));
   player.on('songchange', () => push(true));
@@ -130,6 +181,7 @@ export function initDesktopLyrics() {
     if (win?.closed) {
       win = null;
       window.__APP_DESKTOP_LYRICS = '0';
+      updateLockBtn();
     }
   }, 1000);
 }

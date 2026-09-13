@@ -22,6 +22,7 @@
  *      本地歌单增强 S27(在线歌加入歌单·弹层选择·自定义封面)→
  *      生命周期内存优化 S28(hidden 壁纸视频解码休眠·rAF 挂起·Web Audio 挂起·恢复)→
  *      界面调整 S29(上/下一首 SVG 图标·模式钮同灰·抽屉避让播放条·桌词无背景·粒子开关)→
+ *      面板收缩+歌名裁切 S30(分组点击折叠·vmp.fxcollapsed.v1·跑马灯不越「词」按钮)→
  *      全程无未捕获异常。每步失败互不阻断。
  */
 const { spawn } = require('node:child_process');
@@ -1599,6 +1600,131 @@ async function newTarget() {
         `window.__APP_FX.sceneEnabled === true && getComputedStyle(document.getElementById('starfield')).visibility === 'visible' && !window.${vizKey2}._suspended`, 3000));
       check('S29 粒子:开关持久化 vmp.fx.v1', await poll("JSON.parse(localStorage.getItem('vmp.fx.v1')||'{}').sceneEnabled === true", 3000));
       check('S29 粒子:开关按钮文案联动(开)', (await ev("document.getElementById('fx-sceneEnabled').textContent")) === '开');
+    });
+
+    // S30 视觉面板分组收缩 + 播放条歌名裁切(2026-09-12 先生反馈)
+    await step('S30', async () => {
+      await openDrawer();
+      await ev("document.querySelector('.drawer-tab-btn[data-tab=visual]').click()");
+      await poll("!document.getElementById('visual-pane').hidden", 3000);
+      const headSel = "(()=>[...document.querySelectorAll('#visual-pane .fx-group')].find(x=>x.querySelector('.fx-group-head')?.textContent==='场景'))()";
+      const groups = await ev("document.querySelectorAll('#visual-pane .fx-group-head').length");
+      check('S30 视觉面板:四个参数分组标题可点击收缩', groups === 4, `${groups} 个`);
+      const before = await ev(`(()=>{const g=${headSel};return getComputedStyle(g.querySelector('.fx-group-body')).display;})()`);
+      await ev(`(()=>{const g=${headSel};g.querySelector('.fx-group-head').click();return true;})()`);
+      const after = await ev(`(()=>{const g=${headSel};return {collapsed:g.classList.contains('collapsed'),display:getComputedStyle(g.querySelector('.fx-group-body')).display,saved:JSON.parse(localStorage.getItem('vmp.fxcollapsed.v1')||'[]')};})()`);
+      check('S30 收缩:点「场景」标题 → 本体 display:none',
+        before !== 'none' && after?.collapsed === true && after?.display === 'none', JSON.stringify({ before, ...after }));
+      check('S30 收缩:状态持久化 vmp.fxcollapsed.v1', Array.isArray(after?.saved) && after.saved.includes('场景'), JSON.stringify(after?.saved));
+      check('S30 收缩:参数控件仍留在 DOM(S12a 计数不受影响)',
+        (await ev("document.querySelectorAll('#visual-pane .fx-param').length")) >= 13);
+      await ev(`(()=>{const g=${headSel};g.querySelector('.fx-group-head').click();return true;})()`);
+      check('S30 展开:再点一次还原并清掉持久化', await poll(
+        `(()=>{const g=${headSel};return !g.classList.contains('collapsed') && !JSON.parse(localStorage.getItem('vmp.fxcollapsed.v1')||'[]').includes('场景');})()`, 2000));
+      // 长歌名跑马灯(translateX 负向滑动)必须在 .np-meta 内裁掉,不能盖到右侧「词」/「桌词」按钮
+      const clip = await ev(`(()=>{
+        const meta=document.querySelector('.np-meta');
+        const m=meta.getBoundingClientRect(), btn=document.getElementById('lyric-toggle').getBoundingClientRect();
+        return { overflow: getComputedStyle(meta).overflowX, gap: Math.round(btn.left - m.right) };
+      })()`);
+      check('S30 播放条:歌名容器裁切(右边界不越过「词」按钮)', clip?.overflow === 'hidden' && clip.gap >= 0, JSON.stringify(clip));
+      await ev("document.querySelector('.drawer-tab-btn[data-tab=visual]').click()");
+    });
+
+    // S31 我的酷狗页 + 收藏入口(2026-09-12):徽章点击改「进用户页」,退出登录移入页面内
+    await step('S31', async () => {
+      await ev("localStorage.setItem('vmp.login.v1', JSON.stringify({ token: 's31tok', userid: '900393547' }))");
+      await cdp.send('Page.reload');
+      await sleep(2500);
+      check('S31 登录态:徽章显示已登录', await poll("document.getElementById('drawer-user').dataset.logged === '1'", 8000),
+        await ev("document.getElementById('drawer-user-title').textContent"));
+      check('S31 徽章副标题:指向「我的酷狗」', /我的酷狗/.test(await ev("document.getElementById('drawer-user-sub').textContent")),
+        await ev("document.getElementById('drawer-user-sub').textContent"));
+      await openDrawer();
+      await ev("document.getElementById('drawer-user').click()");
+      check('S31 用户页:点徽章进入「我的酷狗」(非两击退出)', await poll("!!document.getElementById('user-logout')", 5000),
+        `arm=${await ev("document.getElementById('drawer-user').dataset.arm")}`);
+      check('S31 用户页:显示本地登录态 UID', /900393547/.test(await ev("document.getElementById('main').textContent")));
+      // 退出登录 = 头像栏最右侧的常显按钮(不在「刷新」旁边,防误触)
+      const logoutGeo = await ev(`(()=>{
+        const card=document.querySelector('.user-card'), btn=document.getElementById('user-logout');
+        if(!card||!btn) return null;
+        const c=card.getBoundingClientRect(), b=btn.getBoundingClientRect();
+        return { inCard: card.contains(btn), last: card.lastElementChild === btn, rightGap: Math.round(c.right - b.right) };
+      })()`);
+      check('S31 退出按钮:位于头像栏最右侧且常显', logoutGeo?.inCard === true && logoutGeo?.last === true && logoutGeo.rightGap <= 20,
+        JSON.stringify(logoutGeo));
+      check('S31 用户页:听歌排行区已渲染(拉取失败也有占位)', await poll("!!document.getElementById('user-rank')", 3000));
+      check('S31 收藏:api.collectPlaylist 已暴露',
+        (await ev("(async()=>{const m=await import('/js/api.js'); return typeof m.collectPlaylist === 'function';})()")) === true);
+      await ev("document.getElementById('user-logout').click()");
+      check('S31 退出:清登录态 + 徽章回未登录 + 回推荐页', await poll(
+        "!localStorage.getItem('vmp.login.v1') && document.getElementById('drawer-user').dataset.logged === '0' && document.getElementById('drawer-user-title').textContent === '未登录'", 8000));
+    });
+
+    // S32 桌词锁定(2026-09-12):主窗锁按钮 = 唯一解锁入口;Electron 下走 setIgnoreMouseEvents 穿透,
+    // 浏览器 popup 无穿透能力 → 锁定退化为「禁止拖动 + 控件不可点」,状态与外观仍然可断言
+    await step('S32', async () => {
+      await ev("localStorage.setItem('vmp.desktopLyrics.v1', '{}')");
+      await cdp.send('Page.reload');
+      await sleep(2500);
+      const init = await ev(`(()=>{const b=document.getElementById('dl-lock-btn');return {exists:!!b,hidden:b?.hidden,flag:window.__APP_DL_LOCKED};})()`);
+      check('S32 初始:锁按钮存在但隐藏(小窗未开)+ 未锁定',
+        init?.exists === true && init.hidden === true && init.flag === '0', JSON.stringify(init));
+      await ev("document.getElementById('desktop-lyrics-btn').click()");
+      check('S32 小窗:打开后锁按钮可见', await poll(
+        "document.getElementById('desktop-lyrics-btn') && window.__APP_DESKTOP_LYRICS === '1' && document.getElementById('dl-lock-btn').hidden === false", 5000));
+      const t = await attachTarget('desktop-lyrics.html');
+      check('S32 小窗:目标存在', !!t);
+      if (!t) return;
+      const ws4 = new WebSocket(t.webSocketDebuggerUrl);
+      await new Promise((res, rej) => { ws4.onopen = res; ws4.onerror = () => rej(new Error('ws4 connect failed')); });
+      const cdp4 = new CDP(ws4);
+      await cdp4.send('Runtime.enable');
+      const ev4 = async (expr) => (await cdp4.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result?.value;
+      const poll4 = async (expr, timeout = 4000, interval = 300) => {
+        const t0 = Date.now();
+        while (Date.now() - t0 < timeout) {
+          try { if (await ev4(expr)) return true; } catch { return false; }
+          await sleep(interval);
+        }
+        return false;
+      };
+      await ev("document.getElementById('dl-lock-btn').click()");
+      const mainLock = await ev(`(()=>{const b=document.getElementById('dl-lock-btn');return {flag:window.__APP_DL_LOCKED,text:b.textContent,title:b.title,on:b.classList.contains('dl-lock-on')};})()`);
+      check('S32 锁定:主窗标记 + 按钮变 🔒/点亮',
+        mainLock?.flag === '1' && mainLock.text === '🔒' && mainLock.on === true, JSON.stringify(mainLock));
+      check('S32 锁定:持久化 vmp.desktopLyrics.v1.locked',
+        (await ev("JSON.parse(localStorage.getItem('vmp.desktopLyrics.v1')||'{}').locked")) === true);
+      check('S32 小窗:同步锁定外观(控件淡化 + 拖拽光标取消 + 标记)', await poll4(`(()=>{
+        const ctrls=document.querySelector('.dl-ctrls');
+        return window.__APP_DL_LOCKED === '1'
+          && document.documentElement.dataset.locked === '1'
+          && parseFloat(getComputedStyle(ctrls).opacity) < 1
+          && getComputedStyle(document.getElementById('dl-drag')).cursor === 'default';
+      })()`, 4000, 300));
+      // 关键回归:锁定后小窗的控件必须仍可点(安装版靠「悬停恢复命中」,浏览器模式本就该可点)——
+      // 早先版本给锁定态加了 pointer-events:none,锁上就再也解不开,先生实测报错
+      check('S32 锁定:小窗控件未被禁用(pointer-events 非 none,锁上仍能解锁)', await ev4(`(()=>{
+        const b=document.getElementById('dl-lock');
+        return getComputedStyle(b).pointerEvents !== 'none' && getComputedStyle(document.querySelector('.dl-ctrls')).pointerEvents !== 'none';
+      })()`) === true);
+      // 锁定态的命中规则 = 位置 ‖ 2s 时窗:鼠标一动即淡入可点,静置 2s 后回到穿透
+      await ev4("document.dispatchEvent(new MouseEvent('mousemove',{clientX:6,clientY:6,bubbles:true}))");
+      check('S32 锁定:鼠标一动 → 控制条淡入(进入可点窗口)', await poll4(
+        "document.documentElement.dataset.hit === '1' && parseFloat(getComputedStyle(document.querySelector('.dl-ctrls')).opacity) > 0.6", 2000, 200));
+      check('S32 锁定:静置 2s → 回到穿透态(控制条淡出)', await poll4(
+        "document.documentElement.dataset.hit === '0' && parseFloat(getComputedStyle(document.querySelector('.dl-ctrls')).opacity) < 0.6", 6000, 400));
+      // 小窗点 🔒 → BroadcastChannel 回主窗 → 主窗解锁(穿透态下这条路径不可达,浏览器模式可验协议)
+      await ev4("document.getElementById('dl-lock').click()");
+      check('S32 解锁:小窗 🔒 经 toggle-lock 回主窗解锁', await poll(
+        "window.__APP_DL_LOCKED === '0' && JSON.parse(localStorage.getItem('vmp.desktopLyrics.v1')||'{}').locked === false", 5000),
+        await ev("document.getElementById('dl-lock-btn').textContent"));
+      try { ws4.close(); } catch {}
+      await ev("window.__APP_DESKTOP_LYRICS === '1' && document.getElementById('desktop-lyrics-btn').click(), true");
+      await poll("window.__APP_DESKTOP_LYRICS === '0'", 3000);
+      check('S32 收尾:关窗后锁按钮隐藏', await poll("document.getElementById('dl-lock-btn').hidden === true", 3000));
+      await ev("localStorage.setItem('vmp.desktopLyrics.v1', '{}')");
     });
 
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)

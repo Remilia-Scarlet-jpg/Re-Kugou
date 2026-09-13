@@ -20,4 +20,7 @@ contextBridge.exposeInMainWorld('vmpShell', {
   onWindowHidden: (cb) => { ipcRenderer.on('app:hidden', (_e, hidden) => cb(Boolean(hidden))); },
   // 内存指标:app.getAppMetrics() 工作集快照(排查/测试用)
   getMetrics: () => ipcRenderer.invoke('app:metrics'),
+  // 桌面歌词锁定:小窗鼠标穿透开关(主进程对该小窗 setIgnoreMouseEvents;
+  // 锁定后由小窗自己按「鼠标是否停在控件条上」动态下发 true/false,浏览器模式无此能力)
+  dlIgnore: (shouldIgnore) => ipcRenderer.send('dl:ignore', Boolean(shouldIgnore)),
 });

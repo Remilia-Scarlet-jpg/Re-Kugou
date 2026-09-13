@@ -185,7 +185,7 @@ Cookie 通过以下方式传递：
 
 ## 本仓库裁剪(RE:KG 本地集成,2026-08 安全加固)
 
-- **模块白名单**:`server.js` 导出 `ALLOWED_MODULE_FILES`(12 个前端实际使用的模块;`search_hot` 于 2026-08-28 随热搜功能摘除,模块文件保留),`main.js` 加载时同步过滤 → 未列出的约 157 条路由一律 404(短信验证码/手机号登录/注册等);新增前端路由需两处同步
+- **模块白名单**:`server.js` 导出 `ALLOWED_MODULE_FILES`(15 个前端实际使用的模块;`search_hot` 于 2026-09-12 随热搜功能摘除、`playlist_add`/`user_detail`/`user_listen` 于 2026-09-12 随收藏歌单与「我的酷狗」页加入,模块文件一律保留),`main.js` 加载时同步过滤 → 未列出的约 154 条路由一律 404(短信验证码/手机号登录/注册等);新增前端路由需两处同步
 - **已删除的上游文件**(`git pull` 会恢复,恢复即重删):`Dockerfile`、`vercel.json`、`.github/workflows/build.yml`(公网部署放大本地服务攻击面);`package.json` 已删 `pkg` 依赖与 scripts/config 块
 - **HOST 默认 127.0.0.1**:`server.js` 监听 `process.env.HOST || '127.0.0.1'`(上游默认 0.0.0.0)
 - **Cookie/缓存/脱敏**:身份 cookie 统一 HttpOnly+Max-Age+SameSite 后缀;apicache 排除 `/login|user|song|auth` 路径;错误响应体只含 message、日志只打路径

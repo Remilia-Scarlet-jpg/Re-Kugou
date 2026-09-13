@@ -174,7 +174,17 @@ async function bootstrap() {
 }
 
 // ---------- 桌词小窗(拦截 window.open,覆写为无边框透明置顶) ----------
+// 锁定时要对「小窗」这个 BrowserWindow 调 setIgnoreMouseEvents,而请求可能来自主窗
+// (锁上后小窗自己收不到点击)→ 必须持有实例引用,不能按 e.sender 反推。
+let lyricsWindow = null;
 function installWindowOpenHandler(win) {
+  win.webContents.on('did-create-window', (child, details) => {
+    if (!/desktop-lyrics\.html/.test(details?.url || '')) return;
+    lyricsWindow = child;
+    child.on('closed', () => {
+      if (lyricsWindow === child) lyricsWindow = null;
+    });
+  });
   win.webContents.setWindowOpenHandler((details) => {
     if (!/^https?:\/\/(localhost|127\.0\.0\.1):3001\//.test(details.url)) {
       return { action: 'deny' }; // 只放行本应用页面
@@ -212,8 +222,14 @@ function installWindowOpenHandler(win) {
 }
 
 // ---------- 窗口控件 IPC ----------
-ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
-ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close());
+ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close());
+// 桌面歌词锁定 → 小窗鼠标穿透开关(forward:true 保留 mousemove 转发,
+// 小窗据此判断鼠标是否移到控件条上,从而临时恢复命中——锁上后仍能点 🔒 解锁)。
+// 仅作用于桌词小窗:主窗若穿透,整个界面就点不动了。
+ipcMain.on('dl:ignore', (_e, shouldIgnore) => {
+  if (!lyricsWindow || lyricsWindow.isDestroyed()) return;
+  lyricsWindow.setIgnoreMouseEvents(Boolean(shouldIgnore), { forward: true });
+});
 ipcMain.on('win:toggle-maximize', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w) { w.isMaximized() ? w.unmaximize() : w.maximize(); }

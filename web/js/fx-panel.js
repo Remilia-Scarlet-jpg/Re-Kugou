@@ -8,7 +8,26 @@
 import { FX_DEFAULTS, FX_SPECS, getFx, setFx, applyFxSnapshot, resetFx, getFxSnapshot, subscribe } from './fx.js';
 
 const PRESET_KEY = 'vmp.fxpresets.v1';
+const COLLAPSE_KEY = 'vmp.fxcollapsed.v1';
 const SLOT_COUNT = 4;
+
+/** 已收缩的分组标题集合(场景/运镜/壁纸/桌词),持久化在 vmp.fxcollapsed.v1 */
+function loadCollapsed() {
+  try {
+    const a = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]');
+    return new Set(Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsed(set) {
+  try {
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set]));
+  } catch {
+    /* 存储满等异常忽略 */
+  }
+}
 
 /** 面板分组注册表(标签页→组→参数键) */
 const FX_GROUPS = [
@@ -93,14 +112,31 @@ function renderItem(key) {
   return item;
 }
 
-function renderGroup(group) {
+function renderGroup(group, collapsedSet) {
   const g = document.createElement('div');
   g.className = 'fx-group';
   const title = document.createElement('div');
-  title.className = 'fx-group-title';
+  title.className = 'fx-group-title fx-group-head';
   title.textContent = group.title;
-  g.appendChild(title);
-  for (const key of group.items) g.appendChild(renderItem(key));
+  const body = document.createElement('div');
+  body.className = 'fx-group-body';
+  for (const key of group.items) body.appendChild(renderItem(key));
+  // 收缩状态持久化(vmp.fxcollapsed.v1):刷新/重开面板保持用户的折叠习惯
+  const collapsed = collapsedSet.has(group.title);
+  g.classList.toggle('collapsed', collapsed);
+  const paintHint = (isCollapsed) => {
+    title.title = `点击${isCollapsed ? '展开' : '收起'}「${group.title}」`;
+    title.setAttribute('aria-expanded', String(!isCollapsed));
+  };
+  paintHint(collapsed);
+  title.addEventListener('click', () => {
+    const now = g.classList.toggle('collapsed');
+    if (now) collapsedSet.add(group.title);
+    else collapsedSet.delete(group.title);
+    paintHint(now);
+    saveCollapsed(collapsedSet);
+  });
+  g.append(title, body);
   return g;
 }
 
@@ -235,7 +271,9 @@ export function initFxPanel(rootEl) {
       : '⚠ 2D 回退模式:场景参数仅 3D 视觉生效';
 
   const groupsEl = rootEl.querySelector('.fx-groups');
-  FX_GROUPS.forEach((g) => groupsEl.appendChild(renderGroup(g)));
+  const collapsedSet = loadCollapsed();
+  FX_GROUPS.forEach((g) => groupsEl.appendChild(renderGroup(g, collapsedSet)));
+  window.__APP_FX_COLLAPSE = collapsedSet; // 测试标记(与真实点击同路径)
 
   const slotsEl = rootEl.querySelector('#fx-slots');
   const slots = loadSlots();

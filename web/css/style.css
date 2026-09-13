@@ -668,7 +668,9 @@ img { -webkit-user-drag: none; }
   0%, 100% { opacity: 0.5; }
   50% { opacity: 1; }
 }
-.np-meta { flex: 1; min-width: 0; }
+/* overflow:hidden 是硬需求:跑马灯长歌名(translateX 负向滑动)必须在本盒内裁掉,
+   否则歌词名会滑到右侧「词」/「桌词」按钮上方把它们盖住(先生 2026-09-12 实测反馈) */
+.np-meta { flex: 1; min-width: 0; overflow: hidden; }
 .np-name {
   font-size: 14px;
   font-weight: 600;
@@ -895,6 +897,59 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
 }
 .card:hover .card-add { opacity: 1; }
 .card-add:hover { color: #fff; background: rgba(0, 245, 212, 0.35); }
+/* 歌单卡「收藏到酷狗」钮:沿用 .card-add 定位,但常显(收藏是主动操作,不该藏起来) */
+.card-star { opacity: 0.72; color: var(--gold); font-size: 15px; }
+.card:hover .card-star { opacity: 1; }
+.card-star:hover { color: #fff; background: rgba(244, 210, 138, 0.32); }
+/* 桌词锁定按钮的激活态(锁定中 = 薄荷底白字) */
+#dl-lock-btn.dl-lock-on { color: #fff; background: rgba(0, 245, 212, 0.30); }
+
+/* ============ 我的酷狗(账号页:信息卡 + 听歌排行 + 退出) ============ */
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--glass);
+  backdrop-filter: blur(14px) saturate(1.25);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  box-shadow: var(--glass-hi);
+}
+.user-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--panel-solid);
+  flex: none;
+}
+.user-info { flex: 1; min-width: 0; }
+.user-name { font-size: 16px; font-weight: 600; }
+.user-sub { font-size: 12px; color: var(--text-2); margin-top: 4px; word-break: break-all; }
+/* 退出登录:头像栏最右侧的危险色常显按钮(先生 2026-09-12 定调——原来混在「刷新」旁边太隐蔽会误触) */
+.user-logout {
+  flex: none;
+  border: none;
+  border-radius: 14px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, rgba(255, 107, 157, 0.92), rgba(255, 107, 157, 0.58));
+  box-shadow: 0 0 18px rgba(255, 107, 157, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: filter 0.15s, transform 0.1s;
+}
+.user-logout:hover { filter: brightness(1.12); }
+.user-logout:active { transform: scale(0.96); }
+.user-actions { display: flex; gap: 10px; margin-top: 10px; }
+.rank-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 10px; font-size: 13px; }
+.rank-row:hover { background: var(--row-hover); }
+.rank-idx { width: 20px; flex: none; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.rank-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-sub { flex: none; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 12px; }
+.rank-cnt { flex: none; color: var(--accent-1); font-size: 12px; font-variant-numeric: tabular-nums; }
 .row-add {
   border: none;
   background: transparent;
@@ -1066,6 +1121,23 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   margin-bottom: 12px;
 }
 .fx-group { margin-bottom: 16px; }
+/* 分组标题可点击收缩本体(.fx-group-body);预设槽用的 .fx-group-title 保持静态无折叠 */
+.fx-group-head {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fx-group-head::before {
+  content: '▾';
+  font-size: 10px;
+  color: var(--text-2);
+  transition: transform 0.18s ease;
+}
+.fx-group.collapsed .fx-group-head::before { transform: rotate(-90deg); }
+.fx-group.collapsed .fx-group-head { margin-bottom: 0; opacity: 0.72; }
+.fx-group.collapsed .fx-group-body { display: none; }
 .fx-group-title {
   font-size: 13px;
   font-weight: 600;

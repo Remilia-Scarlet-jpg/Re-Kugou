@@ -154,7 +154,43 @@ export async function searchPlaylists(keywords) {
     nickname: p.nickname || '',
     img: p.img || '',
     playCount: p.total_play_count || p.play_count || '',
+    // 收藏他人歌单需要原始歌单三要素(缺一上游会拒),列表页不一定都带,故各自兜底空串
+    gid: p.global_collection_id || p.gid || '',
+    userid: p.userid || p.create_userid || p.list_create_userid || '',
   }));
+}
+
+// ---------- 我的酷狗(账号信息 / 听歌排行 / 收藏歌单) ----------
+
+/** 账号信息(/user/detail → v3/get_my_info):nickname、userid、vip 相关字段 */
+export async function getUserDetail() {
+  const d = await getJsonCred('/user/detail', { timestamp: Date.now() });
+  return d?.data || null;
+}
+
+/** 听歌历史排行(/user/listen → v2/get_list):data.info 为按播放次数排序的曲目
+ *  type = list_type:0 本周 / 1 全部(上游两套榜单,0 为空时前端会再试 1) */
+export async function getListenRank(type = 0) {
+  const d = await getJsonCred('/user/listen', { type, timestamp: Date.now() });
+  return d?.data || null;
+}
+
+/**
+ * 收藏他人歌单到自己的酷狗账号(/playlist/add → cloudlist v5/add_list):
+ * type=1 表示收藏既有歌单,需带原始歌单的 listid/gid/创建者 userid;
+ * token/userid 由服务端从 HttpOnly cookie 读取(前端不接触凭据)。
+ */
+export async function collectPlaylist({ name, listid, gid = '', createUserid = '' }) {
+  const d = await getJsonCred('/playlist/add', {
+    name: String(name || ''),
+    type: 1,
+    source: 1,
+    list_create_listid: String(listid || ''),
+    list_create_gid: String(gid || ''),
+    list_create_userid: String(createUserid || ''),
+    timestamp: Date.now(),
+  });
+  return d;
 }
 
 /**

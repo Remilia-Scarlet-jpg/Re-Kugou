@@ -227,10 +227,11 @@ function parseShareTracks(body) {
 /**
  * 新式概念版分享页(activity.kugou.com SPA 壳,无内嵌曲目数据)解析:
  * 最终 URL 带 global_specialid(collection_ 开头)→ 走 pubsongscdn H5 签名接口
- * /v2/get_other_list_file 一次取全列表(pagesize 实测 200/500/1000 均接受,
- * 已放宽到 1000;实测好友歌单 145 首全量),每首自带 cover/timelen(毫秒)/album_id,无需封面补全。
+ * /v2/get_other_list_file **逐页取全量**(单页 300 首,page=1..N 直到不足一页或无新增,
+ * 上限 20 页 = 6000 首;hash 去重防页边界重叠)。每首自带 cover/timelen(毫秒)/album_id,无需封面补全。
  * 签名 = md5(盐 + 按键排序的 key=value 串 + 盐),盐与参数形状来自分享页 SPA
  * 源码(@kg_request chunk),勿改动字段集合(实测缺失即 1001/20006)。
+ * ⚠️ 2026-09-12 前只发 page=1、pagesize=1000(上游仍按 300 截断)→ 大歌单只能拿到前 300 首。
  */
 // 注意:SECURITY_RULES 规则1 豁免——H5_SALT 是酷狗分享页 SPA 公开的客户端签名常量
 // (浏览器端可见,非用户密钥/凭据),硬编码不构成泄露;真正的密钥一律走环境变量
@@ -247,69 +248,105 @@ function h5Sign(params) {
 }
 
 function fetchCollectionPlaylist(globalId, res) {
-  const t = String(Date.now());
-  const p = {
-    appid: '1058',
-    type: '0',
-    module: 'playlist',
-    page: '1',
-    pagesize: '1000',
-    global_collection_id: globalId,
-    mid: t,
-    uid: '0',
-    token: '',
-    dfid: '-',
-    srcappid: '2919',
-    clientver: '20000',
-    clienttime: t,
-    uuid: t,
+  // 翻页取全量(先生 2026-09-12 反馈「只有前 300 首」):上游单页最多给 300 首,
+  // 之前只发 page=1 → 大歌单被截断。现按 PAGE_SIZE=300 逐页取到「不足一页 / 无新增」为止。
+  const PAGE_SIZE = 300;
+  const MAX_PAGES = 20; // 上限 6000 首,防上游异常时无限翻页
+  const songs = [];
+  const seen = new Set();
+  let page = 1;
+  let finished = false;
+  const finish = (obj) => {
+    if (finished) return;
+    finished = true;
+    sendJson(res, 200, obj);
   };
-  p.signature = h5Sign(p);
-  const qs = Object.entries(p)
-    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-    .join('&');
-  upstreamGetRetry(
-    `https://pubsongscdn.kugou.com/v2/get_other_list_file?${qs}`,
-    { 'User-Agent': MOBILE_UA, Accept: '*/*', 'Accept-Encoding': 'identity' },
-    0,
-    (upRes) => {
-      if (upRes?.ssrf) return sendJson(res, 502, { ok: false, error: '非法上游地址' });
-      if (!upRes || upRes.statusCode !== 200) {
-        if (upRes) upRes.resume();
-        return sendJson(res, 200, { ok: false, error: '分享链接的歌曲列表暂不可用,请稍后重试' });
-      }
-      const chunks = [];
-      upRes.on('data', (c) => chunks.push(c));
-      upRes.on('end', () => {
-        let info = null;
-        try {
-          const d = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          info = d?.status === 1 ? d.data?.info : null;
-        } catch {
-          info = null;
+  const nextPage = () => {
+    if (page > MAX_PAGES) {
+      return finish(
+        songs.length
+          ? { ok: true, id: '', name: '', songs, truncated: true }
+          : { ok: false, error: '该分享链接暂不可用(可能是私密歌单),请确认后重试' }
+      );
+    }
+    const t = String(Date.now());
+    const p = {
+      appid: '1058',
+      type: '0',
+      module: 'playlist',
+      page: String(page),
+      pagesize: String(PAGE_SIZE),
+      global_collection_id: globalId,
+      mid: t,
+      uid: '0',
+      token: '',
+      dfid: '-',
+      srcappid: '2919',
+      clientver: '20000',
+      clienttime: t,
+      uuid: t,
+    };
+    p.signature = h5Sign(p);
+    const qs = Object.entries(p)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join('&');
+    upstreamGetRetry(
+      `https://pubsongscdn.kugou.com/v2/get_other_list_file?${qs}`,
+      { 'User-Agent': MOBILE_UA, Accept: '*/*', 'Accept-Encoding': 'identity' },
+      0,
+      (upRes) => {
+        if (upRes?.ssrf) return finish({ ok: false, error: '非法上游地址' });
+        if (!upRes || upRes.statusCode !== 200) {
+          if (upRes) upRes.resume();
+          // 已有曲目时不当致命错误:返回已取到的部分,避免整单失败
+          return finish(
+            songs.length
+              ? { ok: true, id: '', name: '', songs, truncated: true }
+              : { ok: false, error: '分享链接的歌曲列表暂不可用,请稍后重试' }
+          );
         }
-        if (!Array.isArray(info) || !info.length) {
-          return sendJson(res, 200, { ok: false, error: '该分享链接暂不可用(可能是私密歌单),请确认后重试' });
-        }
-        // name 形如 "歌手 - 歌名"(与 m.kugou filename 同构,复用同一拆分逻辑)
-        const songs = info
-          .filter((s) => s && s.hash && s.name)
-          .map((s) => {
+        const chunks = [];
+        upRes.on('data', (c) => chunks.push(c));
+        upRes.on('end', () => {
+          let info = null;
+          try {
+            const d = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            info = d?.status === 1 ? d.data?.info : null;
+          } catch {
+            info = null;
+          }
+          if (!Array.isArray(info) || !info.length) {
+            if (!songs.length) return finish({ ok: false, error: '该分享链接暂不可用(可能是私密歌单),请确认后重试' });
+            return finish({ ok: true, id: '', name: '', songs });
+          }
+          let added = 0;
+          for (const s of info) {
+            if (!s || !s.hash || !s.name) continue;
+            if (seen.has(s.hash)) continue; // 翻页边界重复(上游按页返回可能有重叠)
+            seen.add(s.hash);
+            added++;
+            // name 形如 "歌手 - 歌名"(与 m.kugou filename 同构,复用同一拆分逻辑)
             const parts = String(s.name).split(' - ');
-            return {
+            songs.push({
               hash: s.hash,
               name: parts.length > 1 ? parts[parts.length - 1] : parts[0],
               artists: parts.length > 1 ? parts.slice(0, -1).join(' - ') : '',
               img: s.cover || '',
               albumId: s.album_id || '',
               duration: Number.isFinite(s.timelen) ? Math.round(s.timelen / 1000) : undefined,
-            };
-          });
-        sendJson(res, 200, { ok: true, id: '', name: '', songs });
-      });
-    },
-    10000
-  );
+            });
+          }
+          if (info.length < PAGE_SIZE || added === 0) {
+            return finish({ ok: true, id: '', name: '', songs });
+          }
+          page++;
+          nextPage();
+        });
+      },
+      10000
+    );
+  };
+  nextPage();
 }
 
 /**
@@ -319,7 +356,11 @@ function fetchCollectionPlaylist(globalId, res) {
  */
 function proxyPlaylist(res, query) {
   const urlParam = String(query.get('url') || '').trim();
-  const id = String(query.get('id') || '').replace(/[^0-9]/g, '');
+  const rawId = String(query.get('id') || '').trim();
+  // 新式歌单号(global_collection_id,形如 collection_3_xxx,含字母下划线)直接走 H5 签名接口翻页取全量;
+  // 必须在数字清洗之前判断,否则 collection_3_xxx 会被 replace 洗成 3
+  if (/^collection_[0-9A-Za-z_]+$/.test(rawId)) return fetchCollectionPlaylist(rawId, res);
+  const id = rawId.replace(/[^0-9]/g, '');
   if (!id && urlParam) {
     // SSRF 防护:入口过 kugou.com 白名单(禁 userinfo/子串/伪子域/非 http(s)),非法直接 502
     const safe = safeUpstreamUrl(urlParam);

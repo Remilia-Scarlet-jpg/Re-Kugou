@@ -111,6 +111,14 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
 /* Electron 模式:窗口本身透明(transparent:true),页面不再画卡片底/圆角/投影 */
 html[data-electron], html[data-electron] body { background: transparent; }
 html[data-electron] #dl-root { background: transparent; }
+/* 锁定态:控件淡出做提示,但**保持可点**——
+   安装版整窗穿透,鼠标一动就给 2s 可点窗口(view 的 dlIgnore 逻辑),`data-hit=1` 即该窗口内,
+   浏览器 popup 本就没有穿透能力,禁用按钮只会让人锁上后无路可退。
+   原生拖拽区在锁定时取消,锁上就不能被拖动。 */
+html[data-locked] #dl-drag { -webkit-app-region: no-drag; cursor: default; }
+html[data-locked] #dl-title { opacity: .55; }
+html[data-locked] .dl-ctrls { opacity: .28; transition: opacity .18s ease; }
+html[data-locked][data-hit="1"] .dl-ctrls { opacity: .95; }
 /* Electron 原生窗口拖拽:手柄走 app-region(与系统边缘 resize 互斥,拖动不误触放大);
    手柄内的控件(A−/A+/滑杆/✕)恢复可点(no-drag)。浏览器模式忽略(app-region 无效)。 */
 html[data-electron] #dl-drag { -webkit-app-region: drag; }

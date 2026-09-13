@@ -345,6 +345,7 @@ function showView(name, param) {
     case 'album': return renderAlbumSearch(param ?? pendingSearch);
     case 'playlist': return renderPlaylistSearch(param ?? pendingSearch);
     case 'my': return renderMyPlaylists();
+    case 'user': return renderUserPage();
     default: console.warn('未知视图:', name);
   }
 }
@@ -556,7 +557,7 @@ async function renderPlaylistSearch(keyword) {
     const cards = lists.map(
       (p, i) => `
       <div class="card" data-i="${i}">
-        <div class="card-play-hint">${coverImg(p.img, 480)}<button class="play-badge">▶</button></div>
+        <div class="card-play-hint">${coverImg(p.img, 480)}<button class="play-badge">▶</button><button class="card-add card-star" title="收藏到我的酷狗账号">☆</button></div>
         <div class="card-name">${escapeHtml(p.specialname)}</div>
         <div class="card-sub">${escapeHtml(p.nickname)}${p.playCount ? ` · ${Number(p.playCount).toLocaleString()}次播放` : ''}</div>
       </div>`
@@ -564,7 +565,13 @@ async function renderPlaylistSearch(keyword) {
     el.main.innerHTML = `<div class="view-title">${title}</div><div class="card-grid">${cards.join('')}</div>`;
     bindCoverFallback(el.main);
     el.main.querySelectorAll('.card').forEach((c) => {
-      c.addEventListener('click', () => renderPlaylistSongs(lists[Number(c.dataset.i)]));
+      const pl = lists[Number(c.dataset.i)];
+      c.addEventListener('click', () => renderPlaylistSongs(pl));
+      // ☆ 收藏到酷狗账号:stopPropagation,别把点击穿给「进歌单」
+      c.querySelector('.card-star')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        collectPlaylistToKuGou(pl);
+      });
     });
   } catch {
     el.main.innerHTML = `<div class="view-title">${title}</div>` + emptyBox('加载失败');
@@ -1021,7 +1028,7 @@ function updateDrawerUser(vip) {
   wrap.dataset.logged = '1';
   let uid = '';
   try { uid = JSON.parse(localStorage.getItem('vmp.login.v1') || '{}')?.userid || ''; } catch { /* 忽略 */ }
-  const sub = uid ? `UID ${uid} · 点击徽章可退出登录` : '点击徽章可退出登录';
+  const sub = uid ? `UID ${uid} · 点击进入我的酷狗` : '点击进入我的酷狗';
   if (vip) {
     el.drawerUserTitle.textContent = formatVipLabel(vip);
     el.drawerUserSub.textContent = sub;
@@ -1031,30 +1038,144 @@ function updateDrawerUser(vip) {
   }
 }
 
+/** 抽屉用户大标题:未登录 → 登录弹窗;已登录 → 进「我的酷狗」页(退出登录挪到该页内,不再两击退出) */
 async function onDrawerUserClick() {
   if (el.drawerUser.dataset.logged !== '1') {
     openLoginModal();
     return;
   }
-  // 已登录:先提示,3 秒内再点一次才退出,防误触
-  if (el.drawerUser.dataset.arm !== '1') {
-    el.drawerUser.dataset.arm = '1';
-    const orig = el.drawerUserTitle.textContent;
-    el.drawerUserTitle.textContent = '再点一次退出';
-    toast('再点一次用户徽章确认退出');
-    setTimeout(() => {
-      if (el.drawerUser.dataset.arm === '1') {
-        el.drawerUser.dataset.arm = '';
-        el.drawerUserTitle.textContent = orig;
-        refreshLoginState();
-      }
-    }, 3000);
+  el.drawerUser.dataset.arm = '';
+  openDrawer();
+  switchTab('browse'); // 用户页渲染在浏览面板的 #main 里:必须先切回浏览标签,否则页在隐藏面板中
+  showView('user');
+}
+
+// ---------- 我的酷狗(账号信息 / 听歌排行 / 退出登录) ----------
+/** 本地登录态里已有的 UID 兜底(上游账号接口不可用时也必须看得到 UID) */
+function localLoginInfo() {
+  try {
+    return JSON.parse(localStorage.getItem('vmp.login.v1') || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+/** 听歌排行条目兼容取值:上游字段名跨版本不统一,逐个兜底(含 audio_info 嵌套) */
+function rankRowHtml(it, i) {
+  const a = it?.audio_info || it || {};
+  const name = a.songname || a.name || a.filename || a.audio_name || it?.songname || it?.name || '未知歌曲';
+  const artist = a.singername || a.author_name || a.singer || it?.singername || it?.author_name || '';
+  const cnt = Number(it?.playcount || it?.play_count || it?.total_play_count || it?.count || a.playcount || 0);
+  return `<div class="rank-row">
+    <span class="rank-idx">${i + 1}</span>
+    <span class="rank-name">${escapeHtml(String(name))}</span>
+    <span class="rank-sub">${escapeHtml(String(artist))}</span>
+    <span class="rank-cnt">${cnt ? cnt.toLocaleString() + ' 次' : ''}</span>
+  </div>`;
+}
+
+/** /user/listen 返回体里真正的曲目数组(各版本层级不同,逐个兜底) */
+function pickRankArray(d) {
+  const cands = [d?.info, d?.list, d?.songs, d?.data?.info, d?.data?.list, d?.data];
+  for (const c of cands) if (Array.isArray(c) && c.length) return c;
+  return [];
+}
+
+async function renderUserPage() {
+  const local = localLoginInfo();
+  const uid = local.userid || '未知';
+  if (!api.hasLogin()) {
+    el.main.innerHTML =
+      '<div class="view-title">👤 我的酷狗<span class="sub">账号信息 · 听歌排行</span></div>' +
+      emptyBox('未登录 · 点击抽屉顶部大标题扫码登录');
     return;
   }
-  el.drawerUser.dataset.arm = '';
-  await api.logoutKugou();
-  refreshLoginState();
-  toast('已退出登录');
+  // 先用本地登录态渲染骨架(UID 立刻可见),再按需补上游昵称/昵称/VIP 与听歌排行
+  el.main.innerHTML =
+    '<div class="view-title">👤 我的酷狗<span class="sub">账号信息 · 听歌排行</span></div>' +
+    `<div class="user-card">
+       <img class="user-avatar" id="user-avatar" alt="" src="">
+       <div class="user-info">
+         <div class="user-name" id="user-name">酷狗用户</div>
+         <div class="user-sub" id="user-sub">UID ${escapeHtml(String(uid))}</div>
+       </div>
+       <button class="user-logout" id="user-logout" title="退出酷狗账号">退出登录</button>
+     </div>
+     <div class="user-actions">
+       <button class="chip" id="user-refresh" title="重新拉取账号信息">刷新</button>
+     </div>
+     <div class="view-title" style="margin-top:18px">🎧 听歌排行<span class="sub">按播放次数排序</span></div>
+     <div id="user-rank">${loadingBox()}</div>`;
+
+  el.main.querySelector('#user-logout').addEventListener('click', async () => {
+    await api.logoutKugou();
+    refreshLoginState();
+    toast('已退出登录');
+    showView('recommend');
+  });
+  el.main.querySelector('#user-refresh').addEventListener('click', () => showView('user'));
+
+  // 账号信息(失败只影响昵称/VIP 展示,UID 仍来自本地登录态)
+  try {
+    const info = await api.getUserDetail();
+    if (info) {
+      const name = info.nickname || info.username || info.nick_name || '酷狗用户';
+      const avatar = info.pic || info.picture || info.headimg || '';
+      const uname = el.main.querySelector('#user-name');
+      const usub = el.main.querySelector('#user-sub');
+      if (uname) uname.textContent = name;
+      if (usub) {
+        const upUid = info.userid || uid;
+        const vipEnd = info.vip_end_time || info.vipendtime || '';
+        usub.textContent = `UID ${upUid}${vipEnd ? ` · VIP ${String(vipEnd).slice(0, 10)}` : ''}`;
+      }
+      if (avatar) {
+        const img = el.main.querySelector('#user-avatar');
+        if (img) { img.src = avatar; img.hidden = false; }
+      }
+    }
+  } catch { /* 上游 502/风控:保留本地 UID 展示 */ }
+
+  // 听歌历史排行:list_type 0(本周)为空时再试 1(全部),两者都空才提示暂无
+  const rankBox = el.main.querySelector('#user-rank');
+  let rows = [];
+  for (const type of [0, 1]) {
+    try {
+      rows = pickRankArray(await api.getListenRank(type));
+    } catch {
+      rows = [];
+    }
+    if (rows.length) break;
+  }
+  if (!rows.length) {
+    rankBox.innerHTML = emptyBox('暂无听歌排行(多听几首再来看看)');
+  } else {
+    rankBox.innerHTML = rows.slice(0, 20).map((it, i) => rankRowHtml(it, i)).join('');
+  }
+}
+
+/** 收藏他人歌单(歌单搜索卡片上的 ☆):未登录先提示,失败按上游 msg 反馈 */
+async function collectPlaylistToKuGou(p) {
+  if (!api.hasLogin()) {
+    toast('请先登录酷狗账号(抽屉顶部大标题)', true);
+    return;
+  }
+  toast(`正在收藏「${p.specialname}」…`);
+  try {
+    const r = await api.collectPlaylist({
+      name: p.specialname,
+      listid: p.specialid,
+      gid: p.gid,
+      createUserid: p.userid,
+    });
+    if (r?.status === 1) {
+      toast(`已收藏「${p.specialname}」到酷狗账号`);
+    } else {
+      toast(r?.error || r?.msg || '收藏失败(酷狗未返回成功)', true);
+    }
+  } catch {
+    toast('收藏失败,请稍后重试', true);
+  }
 }
 
 // ---------- 搜索 ----------
