@@ -41,7 +41,7 @@ const FX_GROUPS = [
   },
   {
     title: '壁纸',
-    items: ['bgOpacity', 'bgZoom', 'bgBlur'],
+    items: ['bgOpacity', 'bgZoom', 'bgBlur', 'bgVolume', 'bgDuck'],
   },
   {
     title: '桌词',
@@ -56,6 +56,7 @@ const LABELS = {
   cineEnabled: '运镜开关', cineShake: '运镜幅度', cineIdle: '闲时漂移', cineKick: '节拍冲击',
   cinePunch: '镜头脉冲', fovBase: '基础视角',
   bgOpacity: '壁纸透明度', bgZoom: '壁纸缩放', bgBlur: '壁纸模糊',
+  bgVolume: '壁纸音量', bgDuck: '音乐时静音',
   dlFontSize: '桌词字号', dlOpacity: '桌词透明度',
 };
 

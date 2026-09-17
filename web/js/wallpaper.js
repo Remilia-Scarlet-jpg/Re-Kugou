@@ -12,6 +12,7 @@
 import { getFx, subscribe } from './fx.js';
 import { toast } from './ui.js';
 import { onHidden, onVisible, isHidden } from './lifecycle.js';
+import { player } from './player.js';
 
 const CFG_KEY = 'vmp.wallpaper.v1';
 const DB_NAME = 'vmp-wallpaper-v1';
@@ -32,6 +33,41 @@ let videoUrl = '';
 let hintEl = null;
 let onVideoAccepted = null; // S14 测试钩子:拦截保存动作(验证上限判定,不实际落库)
 let mediaWasPlaying = false; // 生命周期挂起前视频是否在播(恢复时决定是否续播)
+
+// ---------- 壁纸音量(部分壁纸自带声音) ----------
+// 规则:bgVolume = 0 即静音(默认 0,不打扰);bgDuck 开启时音乐一响壁纸自动让位;
+// 浏览器自动播放策略要求「带声播放」必须先有用户交互 → 首次交互前一律静音起步。
+let audioUnlocked = false;
+function desiredMuted() {
+  const fx = getFx();
+  if (!(fx.bgVolume > 0)) return true;                      // 音量 0 = 静音
+  if (fx.bgDuck && player.state === 'playing') return true; // 音乐在响 → 壁纸让位
+  return !audioUnlocked;
+}
+function audioState() {
+  const fx = getFx();
+  return {
+    volume: video.volume,
+    muted: video.muted,
+    unlocked: audioUnlocked,
+    volumeFx: fx.bgVolume,
+    duck: !!fx.bgDuck,
+    ducked: !!fx.bgDuck && player.state === 'playing',
+  };
+}
+function applyWallpaperAudio() {
+  const v = Math.min(1, Math.max(0, Number(getFx().bgVolume) || 0));
+  try {
+    video.volume = v;
+    video.muted = desiredMuted();
+  } catch { /* 元素未就绪:忽略 */ }
+  window.__APP_WP_AUDIO = audioState(); // 测试标记
+}
+function unlockWallpaperAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  applyWallpaperAudio();
+}
 
 // ---------- IndexedDB(vmp-wallpaper-v1 / media) ----------
 let db = null;
@@ -121,7 +157,8 @@ async function applyVideoBlob(blob) {
   if (videoUrl) URL.revokeObjectURL(videoUrl);
   videoUrl = URL.createObjectURL(blob);
   video.src = videoUrl;
-  video.play().catch(() => { /* 静音自动播放被策略拦截时静默 */ });
+  video.muted = true; // 先静音起步(带声自动播放会被浏览器策略拦),播放起来后再按 fx 应用音量
+  video.play().then(() => applyWallpaperAudio()).catch(() => { /* 静音自动播放被策略拦截时静默 */ });
   img.removeAttribute('src');
   showMedia('video');
   cfg = { enabled: true, type: 'video', id: VIDEO_ID, savedAt: Date.now() };
@@ -246,7 +283,8 @@ async function restore() {
         if (videoUrl) URL.revokeObjectURL(videoUrl);
         videoUrl = URL.createObjectURL(blob);
         video.src = videoUrl;
-        video.play().catch(() => {});
+        video.muted = true;
+        video.play().then(() => applyWallpaperAudio()).catch(() => {});
         showMedia('video');
         cfg = { ...saved };
         setMarker('video');
@@ -309,7 +347,14 @@ export function initWallpaper(rootEl) {
   applyCssVars();
   subscribe((path) => {
     if (path === 'bgOpacity' || path === 'bgZoom' || path === 'bgBlur') applyCssVars();
+    if (path === 'bgVolume' || path === 'bgDuck') applyWallpaperAudio();
   });
+  // 音乐开播/暂停 → 重新判定是否让位(bgDuck)
+  player.on('statechange', applyWallpaperAudio);
+  // 首次用户交互即解锁带声播放(自动播放策略);capture 阶段注册,不受其它处理器影响
+  window.addEventListener('pointerdown', unlockWallpaperAudio, true);
+  window.addEventListener('keydown', unlockWallpaperAudio, true);
+  applyWallpaperAudio();
   renderSection(rootEl);
   updateHint();
   onHidden(suspendMedia);  // 生命周期:隐藏挂起(壁纸线程休眠)/恢复续播
@@ -328,3 +373,5 @@ function applyCssVars() {
 window.__APP_WALLPAPER = 'none';
 window.__APP_WALLPAPER_MAX_VIDEO = MAX_VIDEO_BYTES; // 测试钩子:调小可测超限拒绝路径
 window.__APP_WALLPAPER_API = { handleImageFile, handleVideoFile, applyVideoBlob, clearWallpaper, idbCount, setSaveHook: (fn) => { onVideoAccepted = fn; } };
+// 壁纸音量测试钩子:state 读取当前生效值,unlock 模拟「首次用户交互」(合成 click 不算用户手势)
+window.__APP_WP_AUDIO_API = { state: audioState, apply: applyWallpaperAudio, unlock: unlockWallpaperAudio };

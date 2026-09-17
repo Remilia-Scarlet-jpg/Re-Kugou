@@ -1395,8 +1395,9 @@ export function initUI() {
   });
   refreshLoginState();
 
-  // 音量初始值
-  player.setVolume(Number(el.volume.value) / 100);
+  // 音量初始值:player 已从 vmp.volume.v1 恢复上次的值,这里只把 UI 同步成它的真值
+  // (⚠️ 旧代码在这写 player.setVolume(el.volume.value/100) 会把 HTML 默认 80% 强行盖上去,
+  //   导致「音量不保存上次的值」;勿改回去)
   updateVolumeUI();
   updatePlayerbar();
   showView('recommend');

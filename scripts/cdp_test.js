@@ -1727,6 +1727,77 @@ async function newTarget() {
       await ev("localStorage.setItem('vmp.desktopLyrics.v1', '{}')");
     });
 
+    // S33 壁纸音量(2026-09-12):部分壁纸自带声音 → 视觉页音量 + 音乐播放时自动静音
+    await step('S33', async () => {
+      await ev("(async()=>{const {setFx}=await import('/js/fx.js'); setFx('bgVolume',0); setFx('bgDuck',true); return true;})()");
+      await openDrawer();
+      await ev("document.querySelector('.drawer-tab-btn[data-tab=visual]').click()");
+      await poll("!document.getElementById('visual-pane').hidden", 3000);
+      check('S33 视觉面板:壁纸组含音量滑杆与「音乐时静音」开关',
+        (await ev("!!document.getElementById('fx-bgVolume') && !!document.getElementById('fx-bgDuck')")) === true);
+      await ev("(()=>{const s=document.getElementById('fx-bgVolume'); s.value='0.6'; s.dispatchEvent(new Event('input',{bubbles:true})); return true;})()");
+      check('S33 音量:滑杆 → fx 生效并写到 video 元素', await poll(
+        "window.__APP_FX.bgVolume === 0.6 && Math.abs(document.getElementById('wallpaper-video').volume - 0.6) < 0.001", 3000),
+        JSON.stringify(await ev('window.__APP_WP_AUDIO')));
+      check('S33 音量:持久化 vmp.fx.v1', await poll("JSON.parse(localStorage.getItem('vmp.fx.v1')||'{}').bgVolume === 0.6", 3000));
+      check('S33 默认静音:未交互解锁前 muted 恒 true(自动播放策略)',
+        (await ev("document.getElementById('wallpaper-video').muted")) === true);
+      await ev("window.__APP_WP_AUDIO_API.unlock()");
+      check('S33 解锁:音量>0 且音乐未播放 → 出声(muted=false)',
+        await poll("document.getElementById('wallpaper-video').muted === false", 2000));
+      // 音乐开播 → bgDuck 默认开 → 壁纸让位;关掉 duck → 立即恢复出声
+      await mkWavFixtures();
+      await ev(`(async()=>{
+        const {importFiles}=await import('/js/local-music.js');
+        const r=await importFiles([window.__wavA]);
+        const {player}=await import('/js/player.js');
+        player.setQueue(r.songs,0);
+        return true;
+      })()`);
+      await poll("!document.getElementById('audio').paused", 20000);
+      check('S33 duck:音乐播放中 → 壁纸自动静音', await poll(
+        "!document.getElementById('audio').paused && document.getElementById('wallpaper-video').muted === true", 4000),
+        JSON.stringify(await ev('window.__APP_WP_AUDIO')));
+      await ev("(async()=>{const {setFx}=await import('/js/fx.js'); setFx('bgDuck', false); return true;})()");
+      check('S33 duck 关闭:音乐仍在播也不静音壁纸', await poll(
+        "!document.getElementById('audio').paused && document.getElementById('wallpaper-video').muted === false", 3000));
+      // 收尾:音量归 0 回默认静音;清队列与本地库,不污染后续 S9 审计
+      await ev("(async()=>{const {setFx}=await import('/js/fx.js'); setFx('bgVolume',0); setFx('bgDuck',true); const {player}=await import('/js/player.js'); player.clear(); return true;})()");
+      check('S33 收尾:音量归 0 → 壁纸回到静音', await poll("document.getElementById('wallpaper-video').muted === true", 3000));
+      await ev("window.__APP_LOCAL_API.reset()");
+    });
+
+    // S34 音量持久化(2026-09-12 先生反馈「音量不保存上一次的值」)
+    // 根因:player 从不写盘 + ui 初始化用 HTML 默认值 80% 强行 setVolume 盖回
+    await step('S34', async () => {
+      await ev("localStorage.removeItem('vmp.volume.v1')");
+      await ev("(()=>{const s=document.getElementById('volume'); s.value='35'; s.dispatchEvent(new Event('input',{bubbles:true})); return true;})()");
+      check('S34 拖动:player.volume 与播放条数字同步', await poll(
+        "(async()=>{const {player}=await import('/js/player.js'); return Math.abs(player.volume-0.35)<1e-6;})() && document.getElementById('volume-num').textContent === '35%'", 3000));
+      check('S34 落盘:vmp.volume.v1 = 35%(防抖 300ms)', await poll(
+        "JSON.parse(localStorage.getItem('vmp.volume.v1')||'{}').volume === 0.35", 3000),
+        await ev("localStorage.getItem('vmp.volume.v1')"));
+      await cdp.send('Page.reload');
+      await sleep(2500);
+      const restored = await ev(`(async()=>{const {player}=await import('/js/player.js');
+        return { v: player.volume, slider: document.getElementById('volume').value, num: document.getElementById('volume-num').textContent };})()`);
+      check('S34 刷新还原:滑杆/数字回到 35%(未被 HTML 默认 80% 盖回)',
+        Math.abs(restored?.v - 0.35) < 1e-6 && restored.slider === '35' && restored.num === '35%', JSON.stringify(restored));
+      await ev("document.getElementById('btn-mute').click()");
+      check('S34 静音:落盘 muted=true', await poll("JSON.parse(localStorage.getItem('vmp.volume.v1')||'{}').muted === true", 3000));
+      await cdp.send('Page.reload');
+      await sleep(2500);
+      const mutedState = await ev(`(async()=>{const {player}=await import('/js/player.js');
+        return { muted: player.muted, icon: document.getElementById('btn-mute').textContent, num: document.getElementById('volume-num').textContent };})()`);
+      check('S34 刷新还原:仍是静音(🔇 + 0%)',
+        mutedState?.muted === true && mutedState.icon === '🔇' && mutedState.num === '0%', JSON.stringify(mutedState));
+      // 收尾:恢复默认音量与未静音,清持久键(不污染后续 S9 审计、可重复运行)
+      await ev("(async()=>{const {player}=await import('/js/player.js'); player.setMuted(false); player.setVolume(0.8); await new Promise(r=>setTimeout(r,450)); return true;})()");
+      await ev("localStorage.removeItem('vmp.volume.v1')");
+      check('S34 收尾:音量回到 80% 且已取消静音', await poll(
+        "(async()=>{const {player}=await import('/js/player.js'); return Math.abs(player.volume-0.8)<1e-6 && player.muted === false;})() && document.getElementById('volume-num').textContent === '80%'", 3000));
+    });
+
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)
     const errs = [...cdp.exceptions, ...cdp.consoleErrors].filter((e) => !isEnvNoise(e));
     check('S9 全程无未捕获异常/控制台报错', errs.length === 0, errs.slice(0, 3).join(' | '));

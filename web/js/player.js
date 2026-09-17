@@ -10,12 +10,14 @@
 import * as api from './api.js';
 import * as localMusic from './local-music.js';
 import { CONFIG } from './config.js';
-import { clamp } from './utils.js';
+import { clamp, debounce } from './utils.js';
 
 const URL_CACHE_TTL = 10 * 60 * 1000; // 解析结果缓存 10 分钟
 const MAX_CONSECUTIVE_FAILS = 3;      // 连续失败达到该值停止自动跳下一首
 const PLAY_MODES = ['order', 'loop-one', 'shuffle']; // 顺序循环 / 单曲循环 / 随机播放
 const PLAY_MODE_KEY = 'vmp.playmode.v1'; // 播放模式持久化键(store.js 同款 vmp.<name>.v1 约定)
+const VOLUME_KEY = 'vmp.volume.v1';     // 音量/静音持久化键(拖滑杆后刷新界面要还原上次的值)
+const VOLUME_SAVE_DELAY = 300;          // 拖滑杆会连发 input,防抖写盘
 
 class Player {
   constructor() {
@@ -32,8 +34,39 @@ class Player {
     this._analyser = null;
     this._listeners = {};
 
+    // 音量写盘:拖滑杆连发 input → 防抖;pagehide 再同步落一次,拖完立刻刷新也不丢
+    const writeVolume = () => {
+      try {
+        localStorage.setItem(VOLUME_KEY, JSON.stringify({ volume: this.volume, muted: this.muted }));
+      } catch { /* 存储不可用静默降级 */ }
+    };
+    this._volumeFlush = debounce(writeVolume, VOLUME_SAVE_DELAY);
+    window.addEventListener('pagehide', writeVolume);
+
     this._loadPlayMode();
+    this._loadVolume();
     this._bindAudioEvents();
+  }
+
+  /** 从 localStorage 恢复音量与静音(非法/损坏值回退默认 80%/未静音) */
+  _loadVolume() {
+    let volume = 0.8;
+    let muted = false;
+    try {
+      const d = JSON.parse(localStorage.getItem(VOLUME_KEY) || 'null');
+      if (d && Number.isFinite(d.volume)) volume = clamp(d.volume, 0, 1);
+      if (d && typeof d.muted === 'boolean') muted = d.muted;
+    } catch { /* 存储不可用:用默认值 */ }
+    this.volume = volume;
+    this.muted = muted;
+    this.audio.volume = muted ? 0 : volume; // 元素默认 volume=1,必须显式落一次
+    window.__APP_VOLUME = { volume, muted };
+  }
+
+  /** 防抖写盘 + pagehide 同步落盘(拖完滑杆立刻刷新也不丢) */
+  _saveVolume() {
+    window.__APP_VOLUME = { volume: this.volume, muted: this.muted };
+    this._volumeFlush();
   }
 
   /** 从 localStorage 恢复播放模式(非法/损坏值回退顺序循环) */
@@ -225,12 +258,14 @@ class Player {
     this.volume = clamp(v, 0, 1);
     this.audio.volume = this.muted ? 0 : this.volume;
     this._emit('volumechange');
+    this._saveVolume();
   }
 
   setMuted(m) {
     this.muted = !!m;
     this.audio.volume = this.muted ? 0 : this.volume;
     this._emit('volumechange');
+    this._saveVolume();
   }
 
   getPosition() {

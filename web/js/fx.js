@@ -30,6 +30,8 @@ export const FX_DEFAULTS = {
   bgOpacity: 0.85,
   bgZoom: 1.0,
   bgBlur: 0,          // px
+  bgVolume: 0,        // 壁纸音量 0..1(部分壁纸自带声音;默认 0 = 静音,不打扰)
+  bgDuck: true,       // 音乐播放时自动静音壁纸(避免两路声音打架)
   // 桌面歌词小窗
   dlFontSize: 40,
   dlOpacity: 0.92,
@@ -54,6 +56,8 @@ export const FX_SPECS = {
   bgOpacity: [0, 1, 0.05],
   bgZoom: [0.8, 2.0, 0.05],
   bgBlur: [0, 20, 1],
+  bgVolume: [0, 1, 0.05],
+  bgDuck: [0, 1, 1],
   dlFontSize: [24, 64, 2],
   dlOpacity: [0.28, 1, 0.02],
 };
