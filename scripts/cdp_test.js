@@ -1727,14 +1727,16 @@ async function newTarget() {
       await ev("localStorage.setItem('vmp.desktopLyrics.v1', '{}')");
     });
 
-    // S33 壁纸音量(2026-09-12):部分壁纸自带声音 → 视觉页音量 + 音乐播放时自动静音
+    // S33 壁纸音量(2026-09-12):部分壁纸自带声音 → 视觉页音量 + 音乐播放时静音(可选)
     await step('S33', async () => {
-      await ev("(async()=>{const {setFx}=await import('/js/fx.js'); setFx('bgVolume',0); setFx('bgDuck',true); return true;})()");
+      await ev("(async()=>{const {setFx}=await import('/js/fx.js'); setFx('bgVolume',0); setFx('bgDuck',false); return true;})()");
       await openDrawer();
       await ev("document.querySelector('.drawer-tab-btn[data-tab=visual]').click()");
       await poll("!document.getElementById('visual-pane').hidden", 3000);
       check('S33 视觉面板:壁纸组含音量滑杆与「音乐时静音」开关',
         (await ev("!!document.getElementById('fx-bgVolume') && !!document.getElementById('fx-bgDuck')")) === true);
+      check('S33 默认:「音乐时静音」为关(拉了音量就该出声,不悄悄静音)',
+        (await ev("window.__APP_FX.bgDuck")) === false);
       await ev("(()=>{const s=document.getElementById('fx-bgVolume'); s.value='0.6'; s.dispatchEvent(new Event('input',{bubbles:true})); return true;})()");
       check('S33 音量:滑杆 → fx 生效并写到 video 元素', await poll(
         "window.__APP_FX.bgVolume === 0.6 && Math.abs(document.getElementById('wallpaper-video').volume - 0.6) < 0.001", 3000),
@@ -1745,7 +1747,8 @@ async function newTarget() {
       await ev("window.__APP_WP_AUDIO_API.unlock()");
       check('S33 解锁:音量>0 且音乐未播放 → 出声(muted=false)',
         await poll("document.getElementById('wallpaper-video').muted === false", 2000));
-      // 音乐开播 → bgDuck 默认开 → 壁纸让位;关掉 duck → 立即恢复出声
+      // 打开「音乐时静音」→ 音乐开播即让位;关掉 → 立即恢复出声
+      await ev("(async()=>{const {setFx}=await import('/js/fx.js'); setFx('bgDuck', true); return true;})()");
       await mkWavFixtures();
       await ev(`(async()=>{
         const {importFiles}=await import('/js/local-music.js');
@@ -1762,7 +1765,7 @@ async function newTarget() {
       check('S33 duck 关闭:音乐仍在播也不静音壁纸', await poll(
         "!document.getElementById('audio').paused && document.getElementById('wallpaper-video').muted === false", 3000));
       // 收尾:音量归 0 回默认静音;清队列与本地库,不污染后续 S9 审计
-      await ev("(async()=>{const {setFx}=await import('/js/fx.js'); setFx('bgVolume',0); setFx('bgDuck',true); const {player}=await import('/js/player.js'); player.clear(); return true;})()");
+      await ev("(async()=>{const {setFx}=await import('/js/fx.js'); setFx('bgVolume',0); setFx('bgDuck',false); const {player}=await import('/js/player.js'); player.clear(); return true;})()");
       check('S33 收尾:音量归 0 → 壁纸回到静音', await poll("document.getElementById('wallpaper-video').muted === true", 3000));
       await ev("window.__APP_LOCAL_API.reset()");
     });

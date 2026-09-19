@@ -31,7 +31,7 @@ export const FX_DEFAULTS = {
   bgZoom: 1.0,
   bgBlur: 0,          // px
   bgVolume: 0,        // 壁纸音量 0..1(部分壁纸自带声音;默认 0 = 静音,不打扰)
-  bgDuck: true,       // 音乐播放时自动静音壁纸(避免两路声音打架)
+  bgDuck: false,      // 音乐播放时静音壁纸(默认关:拉了音量就该出声;开着会让「没声音」看起来像 bug)
   // 桌面歌词小窗
   dlFontSize: 40,
   dlOpacity: 0.92,

@@ -62,6 +62,7 @@ function applyWallpaperAudio() {
     video.muted = desiredMuted();
   } catch { /* 元素未就绪:忽略 */ }
   window.__APP_WP_AUDIO = audioState(); // 测试标记
+  updateHint(); // 提示行同步音量读数(未设置壁纸时 updateHint 自短路)
 }
 function unlockWallpaperAudio() {
   if (audioUnlocked) return;
@@ -148,8 +149,18 @@ function updateHint() {
   if (!hintEl) return;
   const d2 = window.__APP_STARFIELD_3D === '1' ? '' : ' · 2D 模式不可见';
   hintEl.textContent = cfg.type === 'image' ? `图片壁纸(WebP 压缩)${d2}`
-    : cfg.type === 'video' ? `视频壁纸(IndexedDB)${d2}`
+    : cfg.type === 'video' ? `视频壁纸(IndexedDB)${d2}${volumeHint()}`
     : `未设置${d2}`;
+}
+
+/** 音量状态读数(挂在「壁纸文件」提示行上):静音/音乐让位都看得见,不必猜 */
+function volumeHint() {
+  const fx = getFx();
+  if (!(fx.bgVolume > 0)) return ' · 音量 0%(静音)';
+  const pct = Math.round(fx.bgVolume * 100);
+  if (fx.bgDuck && player.state === 'playing') return ` · 音量 ${pct}%(音乐播放中已让位)`;
+  if (!audioUnlocked) return ` · 音量 ${pct}%(点一下页面即出声)`;
+  return ` · 音量 ${pct}%`;
 }
 
 async function applyVideoBlob(blob) {
@@ -347,7 +358,13 @@ export function initWallpaper(rootEl) {
   applyCssVars();
   subscribe((path) => {
     if (path === 'bgOpacity' || path === 'bgZoom' || path === 'bgBlur') applyCssVars();
-    if (path === 'bgVolume' || path === 'bgDuck') applyWallpaperAudio();
+    if (path === 'bgVolume' || path === 'bgDuck') {
+      applyWallpaperAudio();
+      // 用户主动拉音量却仍然没声:明确告知是「音乐时静音」在起作用,否则看起来就是坏的
+      if (path === 'bgVolume' && getFx().bgVolume > 0 && getFx().bgDuck && player.state === 'playing') {
+        toast('壁纸音量已调高,但「音乐时静音」开着 —— 音乐播放期间壁纸保持静音');
+      }
+    }
   });
   // 音乐开播/暂停 → 重新判定是否让位(bgDuck)
   player.on('statechange', applyWallpaperAudio);
