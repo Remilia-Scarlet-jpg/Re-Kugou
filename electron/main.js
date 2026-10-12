@@ -9,7 +9,7 @@
  * 桌词小窗:setWindowOpenHandler 拦截 window.open('/desktop-lyrics.html'),
  * 覆写为无边框透明置顶 BrowserWindow;页面内 moveBy 拖动/7s 自关逻辑零改动。
  */
-const { app, BrowserWindow, Menu, dialog, ipcMain, utilityProcess } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, utilityProcess, screen } = require('electron');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
@@ -181,8 +181,10 @@ function installWindowOpenHandler(win) {
   win.webContents.on('did-create-window', (child, details) => {
     if (!/desktop-lyrics\.html/.test(details?.url || '')) return;
     lyricsWindow = child;
+    if (dlLocked) startDlHitPoll(); // 重开小窗且仍处于锁定态 → 立刻恢复命中轮询
     child.on('closed', () => {
       if (lyricsWindow === child) lyricsWindow = null;
+      stopDlHitPoll();
     });
   });
   win.webContents.setWindowOpenHandler((details) => {
@@ -223,12 +225,66 @@ function installWindowOpenHandler(win) {
 
 // ---------- 窗口控件 IPC ----------
 ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close());
-// 桌面歌词锁定 → 小窗鼠标穿透开关(forward:true 保留 mousemove 转发,
-// 小窗据此判断鼠标是否移到控件条上,从而临时恢复命中——锁上后仍能点 🔒 解锁)。
-// 仅作用于桌词小窗:主窗若穿透,整个界面就点不动了。
-ipcMain.on('dl:ignore', (_e, shouldIgnore) => {
+// ---------- 桌面歌词锁定:命中判定由主进程轮询光标(唯一来源) ----------
+// 为什么不交给渲染进程:setIgnoreMouseEvents(true,{forward:true}) 的 mousemove 转发在
+// Windows + 透明无边框窗上实测不可靠(先生反馈「锁上后小窗的 🔒 点不到,只能回主窗解锁」)。
+// 主进程用 screen.getCursorScreenPoint() 自己算,完全不依赖事件转发。
+// 规则:光标在窗内 → 记录移动时间;命中带(顶部控制条)内 或 2s 内动过 → 可点,否则整窗穿透。
+const DL_HOT_H = 44; // 顶部控制条命中带高度(DIP;含 A−/A+/透明度/🔒/✕ 那一行)
+const DL_HIT_MS = 2000; // 窗内动过鼠标后的临时可点窗口
+let dlLocked = false;
+let dlHitTimer = null;
+let dlLastPt = null;
+let dlLastMoveAt = 0;
+let dlIgnoring = null; // 已下发的 ignore 值(去抖,避免每 100ms 调一次 API)
+
+function applyDlIgnore(next) {
   if (!lyricsWindow || lyricsWindow.isDestroyed()) return;
-  lyricsWindow.setIgnoreMouseEvents(Boolean(shouldIgnore), { forward: true });
+  if (dlIgnoring === next) return;
+  dlIgnoring = next;
+  lyricsWindow.setIgnoreMouseEvents(next, { forward: true });
+  // 把「现在能不能点」推回小窗,供控制条淡入淡出(纯展示,判定已在这里完成)
+  try { lyricsWindow.webContents.send('dl:hit', !next); } catch { /* 窗口正在销毁 */ }
+}
+
+function tickDlHit() {
+  if (!lyricsWindow || lyricsWindow.isDestroyed()) return stopDlHitPoll();
+  if (!dlLocked) return applyDlIgnore(false);
+  const pt = screen.getCursorScreenPoint();
+  const b = lyricsWindow.getBounds();
+  const inside = pt.x >= b.x && pt.x <= b.x + b.width && pt.y >= b.y && pt.y <= b.y + b.height;
+  if (!inside) {
+    // 光标不在窗内:立刻恢复穿透(不因为「别处动过鼠标」而挡桌面点击)
+    dlLastPt = null;
+    dlLastMoveAt = 0;
+    return applyDlIgnore(true);
+  }
+  if (!dlLastPt || pt.x !== dlLastPt.x || pt.y !== dlLastPt.y) {
+    dlLastMoveAt = Date.now();
+    dlLastPt = pt;
+  }
+  const inHot = pt.y - b.y <= DL_HOT_H;
+  applyDlIgnore(!(inHot || Date.now() - dlLastMoveAt < DL_HIT_MS));
+}
+
+function startDlHitPoll() {
+  // 60ms 一次:GetCursorPos 极廉价,而间隔过长会出现「刚移进控制条就点」落空(状态还没翻转)
+  if (!dlHitTimer) dlHitTimer = setInterval(tickDlHit, 60);
+  tickDlHit();
+}
+function stopDlHitPoll() {
+  if (dlHitTimer) { clearInterval(dlHitTimer); dlHitTimer = null; }
+  dlLastPt = null;
+  dlLastMoveAt = 0;
+  dlIgnoring = null;
+}
+
+// 主窗切换锁定态 → 启停轮询(锁定时才轮询,平时零开销)
+ipcMain.on('dl:lock', (_e, locked) => {
+  dlLocked = Boolean(locked);
+  if (!lyricsWindow || lyricsWindow.isDestroyed()) return;
+  if (dlLocked) startDlHitPoll();
+  else { stopDlHitPoll(); applyDlIgnore(false); }
 });
 ipcMain.on('win:toggle-maximize', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);

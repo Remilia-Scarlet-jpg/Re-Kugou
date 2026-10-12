@@ -23,7 +23,6 @@ const el = {
   fontDown: document.getElementById('dl-font-down'),
   fontUp: document.getElementById('dl-font-up'),
   opacity: document.getElementById('dl-opacity'),
-  ctrls: document.getElementById('dl-ctrls'),
   lock: document.getElementById('dl-lock'),
   close: document.getElementById('dl-close'),
 };
@@ -47,71 +46,36 @@ if (window.__APP_CONFIG__?.electron) {
   window.__APP_DL_ELECTRON = '1';
 }
 
-/** 锁定态:仅切样式与光标/拖拽开关;真正的「鼠标穿透」由主进程 setIgnoreMouseEvents 完成,
- *  状态唯一来源是主窗。锁定时**控件条仍要能点**(否则小窗自己解不了锁),规则:
- *    interactive = 鼠标正停在控制条上 ‖ 最近 2s 内动过鼠标
- *  其余时刻整窗穿透(鼠标不动就彻底穿透);浏览器模式没有穿透,这条规则只驱动淡入淡出。 */
-const LOCK_HIT_MS = 2000; // 鼠标动过之后的临时可点窗口
-let hitHot = false;       // 鼠标是否正停在控制条上
-let lockHitUntil = 0;     // 临时可点的截止时间戳
-let lockHitTimer = null;
+/** 锁定态:这里只负责「外观」。**鼠标穿透的命中判定在 Electron 主进程**——
+ *  它用 screen.getCursorScreenPoint() 自己轮询(顶部控制条命中带 ‖ 窗内 2s 内动过鼠标),
+ *  再通过 dl:hit 把「现在能不能点」推给本窗口。之所以不在这里判:
+ *  setIgnoreMouseEvents(true,{forward:true}) 的 mousemove 转发在 Windows 透明无边框窗上
+ *  实测收不到(先生反馈「锁上后小窗的 🔒 点不到,只能回主窗解锁」就是这个原因)。
+ *  浏览器 popup 没有穿透能力 → 控件恒为可点可见,这里只把 🔒 图标与拖拽开关切过去。 */
+let hitActive = true; // 主进程下发的可点状态(浏览器模式恒 true)
 
-const lockInteractive = () => hitHot || Date.now() < lockHitUntil;
-
-/** 把「是否让鼠标穿透」下发给主进程:锁定时只在可点窗口内不穿透 */
-function syncIgnore() {
-  const interactive = !locked || lockInteractive();
-  window.vmpShell?.dlIgnore?.(!interactive); // 浏览器模式无此 API,自动 no-op
-  document.documentElement.dataset.hit = interactive ? '1' : '0';
-}
-
-/** 鼠标动过 → 开一个 2s 的可点窗口(每次移动都续期) */
-function noteMove() {
-  lockHitUntil = Date.now() + LOCK_HIT_MS;
-  clearTimeout(lockHitTimer);
-  lockHitTimer = setTimeout(() => {
-    lockHitUntil = 0;
-    syncIgnore();
-  }, LOCK_HIT_MS + 60);
-  syncIgnore();
+function applyHit(next) {
+  hitActive = !!next;
+  window.__APP_DL_HIT = hitActive;
+  document.documentElement.dataset.hit = hitActive ? '1' : '0';
 }
 
 function applyLock(next) {
   locked = !!next;
   window.__APP_DL_LOCKED = locked ? '1' : '0';
   document.documentElement.dataset.locked = locked ? '1' : '0';
-  if (!locked) {
-    hitHot = false;
-    lockHitUntil = 0;
-    clearTimeout(lockHitTimer);
-  }
   if (el.lock) {
     el.lock.textContent = locked ? '🔒' : '🔓';
     el.lock.title = locked
-      ? '已锁定(鼠标不动时整窗穿透;动一下鼠标即可点击本条解锁)'
-      : '锁定(锁定后鼠标不动时整窗穿透,动一下鼠标就能点回来)';
+      ? '已锁定(鼠标不动时整窗穿透;把鼠标移到本条控制条上即可点击解锁)'
+      : '锁定(锁定后鼠标不动时整窗穿透,鼠标移进顶部控制条就能点回来)';
   }
-  syncIgnore();
+  // 浏览器模式没有穿透:控件常显常可点,不做淡出
+  if (!window.vmpShell?.onDlHit) applyHit(!locked);
 }
 
-// 锁定态的命中判定(两种模式都注册:浏览器模式只用于驱动控制条淡入淡出)
-const HIT_PAD = 8; // 控制条外扩 8px 也算「停在控制条上」
-document.addEventListener('mousemove', (e) => {
-  if (!locked) return;
-  const r = el.ctrls?.getBoundingClientRect();
-  hitHot = !!r
-    && e.clientX >= r.left - HIT_PAD && e.clientX <= r.right + HIT_PAD
-    && e.clientY >= r.top - HIT_PAD && e.clientY <= r.bottom + HIT_PAD;
-  noteMove();
-});
-document.addEventListener('mouseleave', () => {
-  if (!locked) return;
-  hitHot = false;
-  lockHitUntil = 0;
-  clearTimeout(lockHitTimer);
-  syncIgnore();
-});
-window.__APP_DL_HIT = () => lockInteractive(); // 测试标记
+// 命中状态由主进程推送(install 一次;浏览器模式下 vmpShell.onDlHit 不存在)
+window.vmpShell?.onDlHit?.((hit) => applyHit(hit));
 
 // ---------- 快照应用 ----------
 function applySnapshot(s) {

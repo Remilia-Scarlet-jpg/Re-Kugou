@@ -917,11 +917,11 @@ async function newTarget() {
       await poll("document.querySelectorAll('#main .card').length > 0", 8000);
       check('S11 沉浸:返回后恢复面板', await ev("!document.getElementById('right-drawer').classList.contains('immersive')") === true);
 
-      // 关闭 ✕ → logo 重开 → Esc 关闭
+      // 关闭 ✕ → 边缘标签重开 → Esc 关闭(左上角 RE:KG 悬浮 logo 已删除,入口只剩 .drawer-tab)
       await ev("document.getElementById('drawer-close').click()");
       check('S11 抽屉:✕ 关闭', await poll("!document.getElementById('right-drawer').classList.contains('open')", 3000));
-      await ev("document.getElementById('float-logo').click()");
-      check('S11 抽屉:logo 打开', await poll("document.getElementById('right-drawer').classList.contains('open')", 3000));
+      await ev("document.getElementById('drawer-tab').click()");
+      check('S11 抽屉:边缘标签打开', await poll("document.getElementById('right-drawer').classList.contains('open')", 3000));
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
       check('S11 抽屉:Esc 关闭', await poll("!document.getElementById('right-drawer').classList.contains('open')", 3000));
@@ -1703,18 +1703,15 @@ async function newTarget() {
           && parseFloat(getComputedStyle(ctrls).opacity) < 1
           && getComputedStyle(document.getElementById('dl-drag')).cursor === 'default';
       })()`, 4000, 300));
-      // 关键回归:锁定后小窗的控件必须仍可点(安装版靠「悬停恢复命中」,浏览器模式本就该可点)——
-      // 早先版本给锁定态加了 pointer-events:none,锁上就再也解不开,先生实测报错
-      check('S32 锁定:小窗控件未被禁用(pointer-events 非 none,锁上仍能解锁)', await ev4(`(()=>{
-        const b=document.getElementById('dl-lock');
-        return getComputedStyle(b).pointerEvents !== 'none' && getComputedStyle(document.querySelector('.dl-ctrls')).pointerEvents !== 'none';
+      // 关键回归:锁定后小窗的控件必须仍可点 —— 早先版本给锁定态加过 pointer-events:none,
+      // 锁上就再也解不开;命中判定现已移到 Electron 主进程(轮询光标,不依赖 mousemove 转发)
+      check('S32 锁定:小窗控件未被禁用且保持可见(能自己解锁)', await ev4(`(()=>{
+        const b=document.getElementById('dl-lock'), ctrls=document.querySelector('.dl-ctrls');
+        return getComputedStyle(b).pointerEvents !== 'none'
+          && getComputedStyle(ctrls).pointerEvents !== 'none'
+          && document.documentElement.dataset.hit === '1'      // 浏览器模式:主进程不推 hit → 恒可点可见
+          && parseFloat(getComputedStyle(ctrls).opacity) > 0.6;
       })()`) === true);
-      // 锁定态的命中规则 = 位置 ‖ 2s 时窗:鼠标一动即淡入可点,静置 2s 后回到穿透
-      await ev4("document.dispatchEvent(new MouseEvent('mousemove',{clientX:6,clientY:6,bubbles:true}))");
-      check('S32 锁定:鼠标一动 → 控制条淡入(进入可点窗口)', await poll4(
-        "document.documentElement.dataset.hit === '1' && parseFloat(getComputedStyle(document.querySelector('.dl-ctrls')).opacity) > 0.6", 2000, 200));
-      check('S32 锁定:静置 2s → 回到穿透态(控制条淡出)', await poll4(
-        "document.documentElement.dataset.hit === '0' && parseFloat(getComputedStyle(document.querySelector('.dl-ctrls')).opacity) < 0.6", 6000, 400));
       // 小窗点 🔒 → BroadcastChannel 回主窗 → 主窗解锁(穿透态下这条路径不可达,浏览器模式可验协议)
       await ev4("document.getElementById('dl-lock').click()");
       check('S32 解锁:小窗 🔒 经 toggle-lock 回主窗解锁', await poll(
@@ -1799,6 +1796,47 @@ async function newTarget() {
       await ev("localStorage.removeItem('vmp.volume.v1')");
       check('S34 收尾:音量回到 80% 且已取消静音', await poll(
         "(async()=>{const {player}=await import('/js/player.js'); return Math.abs(player.volume-0.8)<1e-6 && player.muted === false;})() && document.getElementById('volume-num').textContent === '80%'", 3000));
+    });
+
+    // S35 纯净模式 + 左上角 logo 移除(2026-09-17 先生要求):播放条右端「隐藏」收起全部界面控件,
+    // 右下角「显示界面」与 Esc 是仅有的两个恢复入口(少一个用户就被关在门外)
+    await step('S35', async () => {
+      check('S35 左上角 RE:KG 悬浮 logo 已移除', await ev("!document.getElementById('float-logo')") === true);
+      check('S35 抽屉入口只剩边缘标签', await ev("!!document.getElementById('drawer-tab')") === true);
+      const init = await ev(`(()=>{const b=document.getElementById('ui-hide-btn'),s=document.getElementById('ui-show-btn');
+        return {btn:!!b,text:b?.textContent,show:!!s,flag:window.__APP_UI_HIDDEN,
+          cls:document.body.classList.contains('ui-hidden'),
+          showPe:getComputedStyle(s).pointerEvents};})()`);
+      check('S35 初始:「隐藏」按钮存在且未处于纯净模式',
+        init?.btn === true && init.text === '隐藏' && init.cls === false && init.flag === '0', JSON.stringify(init));
+      check('S35 初始:恢复入口不可见不可点(不干扰画面)',
+        init?.show === true && init.showPe === 'none', JSON.stringify(init));
+      await ev("document.getElementById('ui-hide-btn').click()");
+      check('S35 隐藏:播放栏淡出且不可点 + 标记置位', await poll(`(()=>{
+        const bar=document.querySelector('.playerbar');
+        return document.body.classList.contains('ui-hidden')
+          && window.__APP_UI_HIDDEN === '1'
+          && parseFloat(getComputedStyle(bar).opacity) < 0.1
+          && getComputedStyle(bar).pointerEvents === 'none';
+      })()`, 3000));
+      check('S35 隐藏:恢复入口浮现且可点', await poll(`(()=>{
+        const s=document.getElementById('ui-show-btn'), st=getComputedStyle(s);
+        return parseFloat(st.opacity) > 0.1 && st.pointerEvents === 'auto';
+      })()`, 3000));
+      await ev("document.getElementById('ui-show-btn').click()");
+      check('S35 显示:点击恢复入口后界面回来', await poll(`(()=>{
+        const bar=document.querySelector('.playerbar');
+        return !document.body.classList.contains('ui-hidden')
+          && window.__APP_UI_HIDDEN === '0'
+          && parseFloat(getComputedStyle(bar).opacity) > 0.9
+          && getComputedStyle(bar).pointerEvents === 'auto';
+      })()`, 3000));
+      await ev("document.getElementById('ui-hide-btn').click()");
+      await poll("document.body.classList.contains('ui-hidden')", 2000);
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      check('S35 Esc:也能退出纯净模式(两条退路都要好使)', await poll(
+        "!document.body.classList.contains('ui-hidden') && window.__APP_UI_HIDDEN === '0'", 3000));
     });
 
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)

@@ -21,8 +21,6 @@
   <audio id="audio" crossorigin="anonymous" preload="none"></audio>
 
   <div class="app">
-    <button class="float-logo" id="float-logo" title="打开音乐面板">RE:KG</button>
-
     <aside class="right-drawer" id="right-drawer">
       <div class="drawer-head">
         <span class="drawer-title">RE:KG</span>
@@ -96,6 +94,7 @@
         <button id="btn-mute" class="chip" title="静音">🔊</button>
         <input id="volume" type="range" min="0" max="100" value="80">
         <span id="volume-num" class="time">80%</span>
+        <button id="ui-hide-btn" class="chip" title="隐藏界面(纯净模式):按 Esc 或点右下角「显示界面」恢复">隐藏</button>
       </div>
     </footer>
 
@@ -110,6 +109,9 @@
       <div class="lyric-body" id="lyric-body"></div>
     </aside>
   </div>
+
+  <!-- 纯净模式恢复入口:平时完全透明不可点,只有 body.ui-hidden 时才浮现(勿删,否则进去出不来) -->
+  <button id="ui-show-btn" class="chip" title="显示界面(Esc)">显示界面</button>
 
   <div class="toasts" id="toasts"></div>
 

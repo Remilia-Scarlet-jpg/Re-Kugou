@@ -70,32 +70,7 @@ img { -webkit-user-drag: none; }
   height: 100vh;
   pointer-events: none; /* 让点击穿透到画布的空区域无碍,子元素各自恢复 */
 }
-.float-logo, .right-drawer, .drawer-tab, .playerbar, .lyric-drawer { pointer-events: auto; }
-
-/* ============ 悬浮按钮 ============ */
-.float-logo {
-  position: fixed;
-  top: 12px;
-  left: 12px;
-  z-index: 3;
-  border: none;
-  border-radius: 20px;
-  padding: 8px 16px;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  white-space: nowrap;
-  background-color: rgba(18, 21, 26, 0.28);
-  background-image: linear-gradient(90deg, var(--accent-1), var(--accent-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  backdrop-filter: blur(12px) saturate(1.25);
-  -webkit-backdrop-filter: blur(12px) saturate(1.25);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
-  transition: transform 0.15s, box-shadow 0.2s;
-}
-.float-logo:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(0, 245, 212, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.14); }
+.right-drawer, .drawer-tab, .playerbar, .lyric-drawer { pointer-events: auto; }
 
 .drawer-tab {
   position: fixed;
@@ -1204,7 +1179,7 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   position: fixed;
   top: 0; left: 0; right: 0;
   height: 32px;
-  z-index: 2; /* 高于 .app(z1)/canvas,低于 .float-logo(z3)→ 照常可点 */
+  z-index: 2; /* 高于 .app(z1)/canvas → 照常可点 */
   -webkit-app-region: drag;
   pointer-events: auto;
   display: flex;
@@ -1237,4 +1212,31 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
 }
 .win-btn:hover { background: rgba(255, 255, 255, .10); color: #fff; }
 #win-close:hover { background: rgba(255, 107, 157, .28); color: #fff; }
+
+/* ============ 纯净模式(隐藏界面) ============ */
+/* 由播放条右端「隐藏」按钮进入、右下角「显示界面」或 Esc 退出:收起播放栏 / 抽屉 / 边缘标签 /
+   歌词抽屉 / Electron 标题栏,只留壁纸与粒子。#ui-show-btn 是唯一常驻恢复入口 ——
+   平时 opacity 0 且不可点(不干扰画面),只在 ui-hidden 下淡入并变可点,保证「进得去也出得来」。 */
+body.ui-hidden .playerbar,
+body.ui-hidden .right-drawer,
+body.ui-hidden .drawer-tab,
+body.ui-hidden .lyric-drawer,
+body.ui-hidden #win-bar {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity .3s ease;
+}
+body.ui-hidden .playerbar { transform: translateY(14px); }
+
+#ui-show-btn {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 6;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s ease;
+}
+body.ui-hidden #ui-show-btn { opacity: .28; pointer-events: auto; }
+body.ui-hidden #ui-show-btn:hover { opacity: .95; }
 

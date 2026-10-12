@@ -111,9 +111,9 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
 /* Electron 模式:窗口本身透明(transparent:true),页面不再画卡片底/圆角/投影 */
 html[data-electron], html[data-electron] body { background: transparent; }
 html[data-electron] #dl-root { background: transparent; }
-/* 锁定态:控件淡出做提示,但**保持可点**——
-   安装版整窗穿透,鼠标一动就给 2s 可点窗口(view 的 dlIgnore 逻辑),`data-hit=1` 即该窗口内,
-   浏览器 popup 本就没有穿透能力,禁用按钮只会让人锁上后无路可退。
+/* 锁定态:控件淡出做提示,但**保持可点**——命中判定在 Electron 主进程(它轮询光标,
+   不依赖 mousemove 转发),`data-hit=1` 即主进程判定「现在可点」(鼠标在顶部控制条上或刚动过)。
+   浏览器 popup 没有穿透能力 → `data-hit` 恒为 1,控件常显常可点,只把 🔒 图标切过去。
    原生拖拽区在锁定时取消,锁上就不能被拖动。 */
 html[data-locked] #dl-drag { -webkit-app-region: no-drag; cursor: default; }
 html[data-locked] #dl-title { opacity: .55; }

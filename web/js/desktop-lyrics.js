@@ -54,15 +54,17 @@ function setLocked(next, opts = {}) {
   locked = !!next;
   saveLock(locked);
   window.__APP_DL_LOCKED = locked ? '1' : '0';
-  // 穿透不是这里下发的:小窗自己按「鼠标是否停在控件条上」动态开关(见 view 的 dlIgnore),
-  // 主窗只负责状态与广播——否则锁上后小窗点不到东西,只能回主窗解锁
+  // 命中判定与鼠标穿透都在主进程(它自己轮询光标算,不依赖 setIgnoreMouseEvents 的 mousemove
+  // 转发 —— 那条路在 Windows 透明窗上实测收不到,先生反馈的「锁上后小窗点不到」就是它):
+  // 这里把锁定态交给主进程 + 广播给小窗换图标,小窗收到后依然能自己点 🔒 解锁
+  window.vmpShell?.dlLock?.(locked);
   bc?.postMessage({ type: 'lock', locked });
   updateLockBtn();
   if (opts.silent) return;
   if (!locked) return toast('桌面歌词已解锁');
   toast(
     window.__APP_CONFIG__?.electron
-      ? '桌面歌词已锁定:歌词区域鼠标穿透,把鼠标移回小窗顶部控制条即可点击解锁'
+      ? '桌面歌词已锁定:鼠标不动时整窗穿透,把鼠标移到小窗顶部控制条上即可点击解锁'
       : '桌面歌词已锁定(锁定期间禁止拖动;鼠标穿透需安装版)'
   );
 }

@@ -45,7 +45,6 @@ const el = {
   rightDrawer: $('right-drawer'),
   drawerTab: $('drawer-tab'),
   drawerClose: $('drawer-close'),
-  floatLogo: $('float-logo'),
   drawerUser: $('drawer-user'),
   drawerUserTitle: $('drawer-user-title'),
   drawerUserSub: $('drawer-user-sub'),
@@ -78,6 +77,17 @@ export function toast(msg, warn = false) {
   // 最多保留 3 条,防止堆叠过高
   while (el.toasts.children.length > 3) el.toasts.firstChild.remove();
 }
+
+// ---------- 纯净模式(隐藏界面) ----------
+/** 隐藏播放栏 / 抽屉 / 歌词抽屉 / Electron 标题栏,只留壁纸与粒子。
+ *  恢复入口必须始终可达:右下角「显示界面」胶囊(平时透明不可点)+ Esc —— 少一个就会把人关在门外。 */
+function setUiHidden(next) {
+  const on = !!next;
+  document.body.classList.toggle('ui-hidden', on);
+  window.__APP_UI_HIDDEN = on ? '1' : '0'; // 测试标记
+  if (on) toast('已进入纯净模式:按 Esc 或点右下角「显示界面」恢复');
+}
+window.__APP_UI_HIDDEN = '0'; // 模块加载即置初值(测试要能在未点击前就读到)
 
 // ---------- 通用片段 ----------
 // CSP(script-src 'self')下禁用内联 onerror 属性,封面失败回退改插入后绑定事件
@@ -1334,15 +1344,19 @@ export function initUI() {
     b.addEventListener('click', () => showView(b.dataset.view));
   });
 
-  // 右侧抽屉:边缘按钮 / 左上 logo / ✕ / Esc
+  // 右侧抽屉:边缘标签 / ✕ / Esc(左上角 RE:KG 悬浮 logo 已按先生要求删除,入口只剩边缘标签)
   el.drawerTab.addEventListener('click', toggleDrawer);
-  el.floatLogo.addEventListener('click', toggleDrawer);
   el.drawerClose.addEventListener('click', closeDrawer);
   document.querySelectorAll('.drawer-tab-btn').forEach((b) => {
     b.addEventListener('click', () => switchTab(b.dataset.tab));
   });
+  // 纯净模式:播放条右端「隐藏」进,右下角「显示界面」或 Esc 出(Esc 优先退出纯净模式)
+  $('ui-hide-btn')?.addEventListener('click', () => setUiHidden(true));
+  $('ui-show-btn')?.addEventListener('click', () => setUiHidden(false));
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && el.rightDrawer.classList.contains('open')) closeDrawer();
+    if (e.key !== 'Escape') return;
+    if (document.body.classList.contains('ui-hidden')) return setUiHidden(false);
+    if (el.rightDrawer.classList.contains('open')) closeDrawer();
   });
 
   // 播放条
