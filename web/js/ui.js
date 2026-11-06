@@ -4,9 +4,10 @@
  */
 import * as api from './api.js';
 import { player } from './player.js';
-import { LyricsView } from './lyrics.js';
+import { LyricsView, findLineIndex } from './lyrics.js';
 import * as localMusic from './local-music.js';
 import { fixImgUrl, formatTime, escapeHtml, PLACEHOLDER_IMG } from './utils.js';
+import { isTransOn, setTransOn, getKeyStatus, saveKey, clearKey, persistKey } from './translate.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -37,11 +38,21 @@ const el = {
   lyricCover: $('lyric-cover'),
   lyricBody: $('lyric-body'),
   lyricClose: $('lyric-close'),
+  // 全屏歌词(手机上的"桌词"替代:整屏大字,零权限、所有设备一致)
+  lyricFull: $('lyric-full'),
+  lyricFullBtn: $('lyric-full-btn'),
+  lyricFullClose: $('lyric-full-close'),
+  lyricFullTitle: $('lyric-full-title'),
+  lyricFullPrev: $('lyric-full-prev'),
+  lyricFullCur: $('lyric-full-cur'),
+  lyricFullNext: $('lyric-full-next'),
   toasts: $('toasts'),
   loginModal: $('login-modal'),
+  llmModal: $('llm-modal'),
   loginClose: $('login-close'),
   qrImg: $('qr-img'),
   qrStatus: $('qr-status'),
+  qrSave: $('qr-save'),
   rightDrawer: $('right-drawer'),
   drawerTab: $('drawer-tab'),
   drawerClose: $('drawer-close'),
@@ -956,7 +967,10 @@ async function startQrFlow() {
       return;
     }
     el.qrImg.src = img;
-    setQrStatus('请用酷狗音乐 App 扫码');
+    // Android:同一部手机没法扫自己屏幕 → 露出「保存到相册」,用酷狗 App 的相册入口自扫
+    const isAndroid = document.documentElement.dataset.platform === 'android';
+    if (el.qrSave) el.qrSave.hidden = !isAndroid;
+    setQrStatus(isAndroid ? '扫码登录:用另一台设备扫,或点下方按钮存相册后自扫' : '请用酷狗音乐 App 扫码');
     qrTimer = setInterval(async () => {
       try {
         const st = await api.checkQrLogin(key);
@@ -992,6 +1006,29 @@ function closeLoginModal() {
   clearInterval(qrTimer);
   qrTimer = null;
   el.qrImg.src = '';
+  if (el.qrSave) el.qrSave.hidden = true;
+}
+
+/** Android 专属:把当前二维码存进系统相册(NativeShell 插件,MediaStore),用酷狗 App「扫一扫 → 相册」自扫 */
+async function saveQrToGallery() {
+  const plugin = window.Capacitor?.Plugins?.NativeShell;
+  const src = el.qrImg?.src || '';
+  if (!plugin) {
+    return toast('当前环境不支持保存到相册', true);
+  }
+  if (!src.startsWith('data:')) {
+    return toast('二维码还没准备好,稍等一下', true);
+  }
+  try {
+    await plugin.saveImage({
+      base64: src.slice(src.indexOf(',') + 1),
+      filename: `rekg-login-${Date.now()}.png`,
+    });
+    setQrStatus('已存入相册:打开酷狗 App → 扫一扫 → 相册 → 选这张图');
+    toast('二维码已存入相册');
+  } catch (e) {
+    toast(`保存失败:${e?.message || '未知错误'}`, true);
+  }
 }
 
 /** VIP 数据字段名不确定,防御式提取:类型 + 到期时间(实测 vip_type=6/is_vip=1,到期时间为 'YYYY-MM-DD HH:mm:ss' 字符串) */
@@ -1113,6 +1150,7 @@ async function renderUserPage() {
      </div>
      <div class="user-actions">
        <button class="chip" id="user-refresh" title="重新拉取账号信息">刷新</button>
+       <button class="chip" id="user-llm" title="设置 AI 翻译密钥">AI 翻译</button>
      </div>
      <div class="view-title" style="margin-top:18px">🎧 听歌排行<span class="sub">按播放次数排序</span></div>
      <div id="user-rank">${loadingBox()}</div>`;
@@ -1268,6 +1306,7 @@ function onSongChange({ song }) {
   el.timeDur.textContent = song?.duration != null ? formatTime(song.duration) : '--:--';
   markPlayingRows(songKey(song));
   lyricsView.loadFor(song && !song.local ? song : null); // 本地歌无歌词源,不发空 hash 检索
+  if (isLyricFullOpen()) renderLyricFull(lastLyricTick); // 全屏歌词跟着切歌刷新标题与内容
   fillCoverFallback(song);
 }
 
@@ -1316,6 +1355,45 @@ function toggleLyric(force) {
   if (open && !player.getCurrent()) lyricsView.loadFor(null);
 }
 
+// ---------- 全屏歌词(手机上替代桌词小窗:整屏大字,零原生代码、零新权限) ----------
+let lastLyricTick = 0; // 最近一次 timeupdate 的秒数,用来在打开瞬间定位当前行
+
+const isLyricFullOpen = () => !!el.lyricFull && el.lyricFull.classList.contains('open');
+
+/** 用 lyricsView 已解析好的行渲染「上一行 / 当前行 / 下一行」 */
+function renderLyricFull(t) {
+  if (!el.lyricFull) return;
+  const song = player.getCurrent();
+  if (el.lyricFullTitle) {
+    el.lyricFullTitle.textContent = song ? `${song.name} · ${song.artists || ''}`.replace(/\s*·\s*$/, '') : '未在播放';
+  }
+  const lines = lyricsView.lines || [];
+  if (!lines.length) {
+    if (el.lyricFullPrev) el.lyricFullPrev.textContent = '';
+    if (el.lyricFullCur) el.lyricFullCur.textContent = song ? (song.local ? '本地歌曲没有歌词' : '暂无歌词') : '未在播放';
+    if (el.lyricFullNext) el.lyricFullNext.textContent = '';
+    return;
+  }
+  const idx = Math.max(0, findLineIndex(lines, t));
+  if (el.lyricFullPrev) el.lyricFullPrev.textContent = idx > 0 ? (lines[idx - 1]?.text || '') : '';
+  const cur = lines[idx];
+  if (el.lyricFullCur) {
+    // 双语:译文以 .lyric-trans 挂在当前句下方(与抽屉/桌词同一套数据)
+    el.lyricFullCur.innerHTML =
+      escapeHtml(cur?.text || '') +
+      (cur?.trans ? `<span class="lyric-trans">${escapeHtml(cur.trans)}</span>` : '');
+  }
+  if (el.lyricFullNext) el.lyricFullNext.textContent = lines[idx + 1]?.text || '';
+}
+
+function toggleLyricFull(force) {
+  if (!el.lyricFull) return;
+  const open = force != null ? force : !isLyricFullOpen();
+  el.lyricFull.classList.toggle('open', open);
+  window.__APP_LYRIC_FULL = open ? '1' : '0'; // 测试标记
+  if (open) renderLyricFull(lastLyricTick);
+}
+
 // ---------- 初始化 ----------
 export function initUI() {
   // 播放条/歌词抽屉封面失败兜底(CSP 下无内联 onerror;常驻监听,换 src 后同样受保护)
@@ -1355,9 +1433,45 @@ export function initUI() {
   $('ui-show-btn')?.addEventListener('click', () => setUiHidden(false));
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (el.llmModal && el.llmModal.classList.contains('open')) return closeLlmModal();
+    if (isLyricFullOpen()) return toggleLyricFull(false);
     if (document.body.classList.contains('ui-hidden')) return setUiHidden(false);
     if (el.rightDrawer.classList.contains('open')) closeDrawer();
   });
+
+  // Android 返回键:逐层关闭,最后一层才交还给系统(退出 App)。
+  // 原生侧(MainActivity.onBackPressed)用 evaluateJavascript 调这里并读返回值:
+  //   '1' = 已消费(关了一层界面),'0' = 没东西可关 → 原生执行默认返回。
+  // 顺序必须与 z 序一致:登录弹窗 > 纯净模式 > 歌词抽屉 > 右抽屉。
+  if (document.documentElement.dataset.platform === 'android') {
+    window.__APP_NATIVE_BACK = () => {
+      if (el.llmModal && el.llmModal.classList.contains('open')) {
+        closeLlmModal();
+        return true;
+      }
+      if (el.loginModal && el.loginModal.classList.contains('open')) {
+        closeLoginModal();
+        return true;
+      }
+      if (isLyricFullOpen()) {
+        toggleLyricFull(false);
+        return true;
+      }
+      if (document.body.classList.contains('ui-hidden')) {
+        setUiHidden(false);
+        return true;
+      }
+      if (el.lyricDrawer.classList.contains('open')) {
+        toggleLyric(false);
+        return true;
+      }
+      if (el.rightDrawer.classList.contains('open')) {
+        closeDrawer();
+        return true;
+      }
+      return false;
+    };
+  }
 
   // 播放条
   el.btnPlay.addEventListener('click', () => player.toggle());
@@ -1369,6 +1483,127 @@ export function initUI() {
   el.btnMute.addEventListener('click', () => player.setMuted(!player.muted));
   el.lyricToggle.addEventListener('click', () => toggleLyric());
   el.lyricClose.addEventListener('click', () => toggleLyric(false));
+
+  // ---------- AI 歌词翻译:开关 + 密钥设置 ----------
+  // 密钥只存在本地服务(写 %APPDATA%\REKG\llm-key.txt),页面只拿掩码。
+  // 没配置密钥时点「译」不再只弹提示,而是直接打开设置弹窗(给用户一个可操作的位置)。
+  const transBtn = $('lyric-trans-btn');
+  let llmInfo = { configured: false, masked: '', source: '' };
+
+  function syncTransBtn() {
+    if (!transBtn) return;
+    const on = isTransOn();
+    transBtn.classList.toggle('on', on);
+    transBtn.title = on ? 'AI 译文:开(点击关闭)' : 'AI 译文:关(点击开启)';
+  }
+
+  function renderLlmStatus() {
+    const box = $('llm-status');
+    if (box) {
+      if (llmInfo.offline) {
+        box.textContent = '本地服务未连接,无法读写密钥(先把服务启动起来)。';
+      } else if (llmInfo.configured) {
+        const from = llmInfo.source === 'env' ? '来自环境变量' : '来自密钥文件';
+        box.innerHTML = `已配置:<b>${escapeHtml(llmInfo.masked)}</b><span class="llm-from">(${from})</span>`;
+      } else {
+        box.textContent = '还没有配置密钥 —— 粘贴一个 sk- 开头的密钥保存后,外文歌就能显示中文译文。';
+      }
+    }
+    const persistBtn = $('llm-persist');
+    if (persistBtn) persistBtn.hidden = !(llmInfo.configured && llmInfo.source === 'env');
+    window.__APP_LLM_KEY = llmInfo.configured ? '1' : '0';
+    window.__APP_LLM_SOURCE = llmInfo.source || '';
+  }
+
+  async function refreshLlmStatus() {
+    llmInfo = await getKeyStatus();
+    renderLlmStatus();
+    return llmInfo;
+  }
+
+  function openLlmModal() {
+    if (!el.llmModal) return;
+    el.llmModal.classList.add('open');
+    window.__APP_LLM_MODAL = '1';
+    refreshLlmStatus();
+    setTimeout(() => $('llm-key-input')?.focus(), 60);
+  }
+
+  function closeLlmModal() {
+    if (!el.llmModal) return;
+    el.llmModal.classList.remove('open');
+    window.__APP_LLM_MODAL = '0';
+    const inp = $('llm-key-input');
+    if (inp) inp.value = '';
+  }
+
+  window.__APP_LLM_MODAL = '0';
+  if (el.llmModal) {
+    el.llmModal.addEventListener('click', (e) => {
+      if (e.target === el.llmModal) closeLlmModal();
+    });
+    $('llm-close')?.addEventListener('click', closeLlmModal);
+    $('llm-save')?.addEventListener('click', async () => {
+      const inp = $('llm-key-input');
+      const key = (inp?.value || '').trim();
+      if (!key.startsWith('sk-')) {
+        toast('密钥应该是 sk- 开头');
+        inp?.focus();
+        return;
+      }
+      const r = await saveKey(key);
+      if (!r?.ok) {
+        toast(r?.error || '保存失败');
+        return;
+      }
+      if (inp) inp.value = '';
+      await refreshLlmStatus();
+      setTransOn(true);
+      syncTransBtn();
+      toast('密钥已保存,正在补译文');
+      closeLlmModal();
+      lyricsView.retranslate();
+    });
+    $('llm-clear')?.addEventListener('click', async () => {
+      const r = await clearKey();
+      await refreshLlmStatus();
+      syncTransBtn();
+      toast(r?.envLocked ? '密钥来自环境变量,这里删不掉;请到系统环境变量里移除' : '已清除密钥');
+    });
+    $('llm-persist')?.addEventListener('click', async () => {
+      const r = await persistKey();
+      if (!r?.ok) {
+        toast(r?.error || '保存失败');
+        return;
+      }
+      await refreshLlmStatus();
+      toast('已写入密钥文件');
+    });
+    refreshLlmStatus();
+  }
+
+  if (transBtn) {
+    syncTransBtn();
+    transBtn.addEventListener('click', async () => {
+      const st = await refreshLlmStatus();
+      if (!st?.configured) return openLlmModal(); // 没密钥 → 直接给设置位置
+      const on = !isTransOn();
+      setTransOn(on);
+      syncTransBtn();
+      if (on) lyricsView.retranslate();
+      else lyricsView.clearTrans();
+    });
+  }
+  // 「我的酷狗」页里的「AI 翻译」入口(页面会重渲染,故用事件委托)
+  el.main?.addEventListener('click', (e) => {
+    if (e.target instanceof Element && e.target.closest('#user-llm')) openLlmModal();
+  });
+  // 全屏歌词:抽屉头「大字」进,右上角 ✕ / Esc / Android 返回键出;点背景空白也算退出
+  el.lyricFullBtn?.addEventListener('click', () => toggleLyricFull(true));
+  el.lyricFullClose?.addEventListener('click', () => toggleLyricFull(false));
+  el.lyricFull?.addEventListener('click', (e) => {
+    if (e.target === el.lyricFull) toggleLyricFull(false); // 只点背景才退,点文字不退
+  });
 
   // 点击播放条歌曲名 → 打开面板并切到队列标签页(歌单界面)
   el.npName.addEventListener('click', () => {
@@ -1388,7 +1623,9 @@ export function initUI() {
   player.on('statechange', updatePlayerbar);
   player.on('timeupdate', (t) => {
     updatePlayerbar();
+    lastLyricTick = t;
     if (el.lyricDrawer.classList.contains('open')) lyricsView.update(t);
+    if (isLyricFullOpen()) renderLyricFull(t);
   });
   player.on('songchange', onSongChange);
   player.on('toast', (msg) => toast(msg, true));
@@ -1407,6 +1644,8 @@ export function initUI() {
   el.loginModal.addEventListener('click', (e) => {
     if (e.target === el.loginModal) closeLoginModal();
   });
+  // Android:保存二维码到相册(原生 NativeShell 插件;桌面版按钮始终 hidden)
+  el.qrSave?.addEventListener('click', saveQrToGallery);
   refreshLoginState();
 
   // 音量初始值:player 已从 vmp.volume.v1 恢复上次的值,这里只把 UI 同步成它的真值

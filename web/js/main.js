@@ -1,6 +1,7 @@
 /**
  * 装配入口:可视化引擎 + 播放器 + UI + 队列持久化 + 快捷键。
  */
+import './platform.js'; // 平台识别(android/web):只写 <html data-platform>,必须最先执行
 import { player } from './player.js';
 import { initUI } from './ui.js';
 import { migrateLegacyLogin } from './api.js';
@@ -11,6 +12,7 @@ import { initFxPanel } from './fx-panel.js';
 import { getFx, subscribe } from './fx.js';
 import { initWallpaper } from './wallpaper.js';
 import { initDesktopLyrics } from './desktop-lyrics.js';
+import { initNativeAudio } from './native-audio.js';
 import { initLifecycle, onHidden, onVisible } from './lifecycle.js';
 
 // ---------- 音乐壁纸可视化:3D(WebGL)优先,失败回退 2D 星野 ----------
@@ -106,6 +108,7 @@ initUI();
 initFxPanel(document.getElementById('visual-pane')); // 视觉 DIY 控制台(右抽屉「视觉」标签页)
 initWallpaper(document.getElementById('visual-pane')); // 壁纸模式(媒体层 + 面板文件区)
 initDesktopLyrics(); // 桌面歌词(独立小窗桥,自绑定 playerbar 按钮)
+initNativeAudio();   // Android 后台播放(前台服务 + 通知栏/锁屏控制;非安装版空转)
 
 // ---------- 队列恢复 ----------
 // 必须在 initUI 之后:restoreQueue 发出的 songchange 事件需要 UI 监听已就位

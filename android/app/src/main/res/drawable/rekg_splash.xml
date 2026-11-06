@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  纯色启动背景,替代 Capacitor 默认的白底 splash.png。
+  原因:RE:KG 是暗色玻璃主题,而 AppTheme 的父主题是 Theme.AppCompat.DayNight.NoActionBar,
+  系统浅色模式下窗口底是白的 —— 冷启动/重试期间会白闪一下,非常出戏。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/rekg_bg" />
+</layer-list>

@@ -91,12 +91,16 @@ function ensureChannel() {
 
 function buildSnapshot() {
   const song = player.queue[player.index] || {};
+  // 只发有时间轴的行(无时间轴的静态歌词没有可外推的 time,发过去会被当成最后一行)
+  const lyric = (lyricsView.lines || [])
+    .filter((l) => typeof l.time === 'number')
+    .map((l) => ({ time: l.time, text: l.text, trans: l.trans || '' }));
   return {
     hash: song.hash || '',
     title: song.name || '未在播放',
     artist: song.artists || '',
-    lyric: (lyricsView.lines || []).map((l) => ({ time: l.time, text: l.text })),
-    lyricLoaded: !!(song.hash && (lyricsView.lines || []).length),
+    lyric,
+    lyricLoaded: !!(song.hash && lyric.length),
     playing: player.state === 'playing',
     playback: {
       time: player.getPosition(),

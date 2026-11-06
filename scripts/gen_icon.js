@@ -2,8 +2,15 @@
  * 零依赖图标生成:手写 PNG 编码器(zlib.deflateSync + zlib.crc32,Node ≥20.15)
  * + PNG-in-ICO 容器 → build/icon.ico(16/32/48/64/256)+ build/icon.png(512)。
  * 图案:酷狗音乐风 — 蓝渐变圆角方 + 左上高光 + 白色 RE 字标(几何 SDF 手绘字形,无字体依赖)。
- * 图标为占位件,可直接替换 build/icon.ico。
- * 用法:node scripts/gen_icon.js
+ *
+ * 用法:
+ *   node scripts/gen_icon.js            → Windows 图标(build/icon.ico + icon.png)
+ *   node scripts/gen_icon.js --android  → Android 图标(android/app/src/main/res/ 下各 mipmap 密度目录)
+ *
+ * Android 的两种形态:
+ *   ic_launcher(.round).png  自适应图标在 API<26 上的回退位图(整块蓝底 + 字标;round 用圆形遮罩)
+ *   ic_launcher_foreground.png  自适应图标前景(透明底 + 居中字标),背景由 drawable/ic_launcher_bg.xml 提供
+ *   ⚠️ 自适应图标画布 108dp,安全区只有中间 72dp —— 前景字标必须缩到 ~0.68,否则会被系统裁掉
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -120,33 +127,48 @@ function sdRE(px, py) {
   return d;
 }
 
-function sample(px, py) {
-  // 底板:蓝渐变圆角方(酷狗风,左上浅蓝 → 右下深蓝)
-  const dBox = sdRoundBox(px, py, 0.215);
-  const aBox = clamp01(0.5 - dBox * 512);
-  if (aBox <= 0) return [0, 0, 0, 0];
+/** 完整图标:蓝渐变底板(round=true 用圆形遮罩)+ 白色 RE 字标 */
+function sampleIcon(px, py, round) {
+  const dShape = round ? Math.hypot(px - 0.5, py - 0.5) - 0.5 : sdRoundBox(px, py, 0.215);
+  const aShape = clamp01(0.5 - dShape * 512);
+  if (aShape <= 0) return [0, 0, 0, 0];
   let col = mix(C_BLUE_TL, C_BLUE_BR, clamp01((px + py) / 2));
   // 左上高光(呼应玻璃配方的进光方向)
   const g = 1 - Math.hypot(px - 0.16, py - 0.12) / 0.6;
   if (g > 0) col = mix(col, C_WHITE, g * 0.1);
   // 白色 RE 字标(底部带一丝浅蓝,增加立体感)
-  const dRE = sdRE(px, py);
-  const aRE = clamp01(0.5 - dRE * 512);
+  const aRE = clamp01(0.5 - sdRE(px, py) * 512);
   if (aRE > 0) {
     const t = clamp01((py - 0.2) / 0.62);
     col = mix(col, mix(C_WHITE, C_TINT, t * 0.35), aRE);
   }
-  return [col[0], col[1], col[2], Math.round(aBox * 255)];
+  return [col[0], col[1], col[2], Math.round(aShape * 255)];
 }
 
-// 512 主图(2×2 超采样抗锯齿)
-function render(size) {
+/** 自适应图标前景:透明底 + 居中字标(缩小到安全区内) */
+// 108dp 画布的安全区是中间 72dp(0.667);字标本体宽约 0.52、高约 0.58,
+// 取 0.98 让字标占画布 ≈0.51×0.57 —— 既够大又不越安全区(实测预览对比过 0.68/0.98)
+const FG_SCALE = 0.98;
+function sampleForeground(px, py) {
+  const gx = 0.5 + (px - 0.5) / FG_SCALE;
+  const gy = 0.5 + (py - 0.5) / FG_SCALE;
+  const aRE = clamp01(0.5 - sdRE(gx, gy) * 512);
+  if (aRE <= 0) return [0, 0, 0, 0];
+  const t = clamp01((gy - 0.2) / 0.62);
+  const col = mix(C_WHITE, C_TINT, t * 0.35);
+  return [col[0], col[1], col[2], Math.round(aRE * 255)];
+}
+
+const sample = (px, py) => sampleIcon(px, py, false);
+
+// 主图(2×2 超采样抗锯齿)
+function render(size, fn = sample) {
   const rgba = Buffer.alloc(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       let r = 0, g = 0, b = 0, a = 0;
       for (const [ox, oy] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
-        const s = sample((x + ox) / size, (y + oy) / size);
+        const s = fn((x + ox) / size, (y + oy) / size);
         r += s[0]; g += s[1]; b += s[2]; a += s[3];
       }
       const i = (y * size + x) * 4;
@@ -192,18 +214,47 @@ function downscale(src, srcSize, dstSize) {
 }
 
 // ---------- 主流程 ----------
-const OUT_DIR = path.join(__dirname, '..', 'build');
-fs.mkdirSync(OUT_DIR, { recursive: true });
-
 const SRC = 512;
-const main = render(SRC);
-const png512 = encodePNG(SRC, SRC, main);
-fs.writeFileSync(path.join(OUT_DIR, 'icon.png'), png512);
 
-const entries = [256, 64, 48, 32, 16].map((s) => ({
-  size: s,
-  png: encodePNG(s, s, downscale(main, SRC, s)),
-}));
-fs.writeFileSync(path.join(OUT_DIR, 'icon.ico'), encodeICO(entries));
+function writeWindowsIcons() {
+  const OUT_DIR = path.join(__dirname, '..', 'build');
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  const main = render(SRC);
+  fs.writeFileSync(path.join(OUT_DIR, 'icon.png'), encodePNG(SRC, SRC, main));
+  const entries = [256, 64, 48, 32, 16].map((s) => ({
+    size: s,
+    png: encodePNG(s, s, downscale(main, SRC, s)),
+  }));
+  fs.writeFileSync(path.join(OUT_DIR, 'icon.ico'), encodeICO(entries));
+  console.log(`icon.ico(${entries.map((e) => e.size).join('/')})+ icon.png(512) → ${OUT_DIR}`);
+}
 
-console.log(`icon.ico(${entries.map((e) => e.size).join('/')})+ icon.png(512) → ${OUT_DIR}`);
+function writeAndroidIcons() {
+  const RES = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'res');
+  if (!fs.existsSync(RES)) {
+    console.log('未找到 android/ 工程,跳过(先跑 npx cap add android)');
+    return;
+  }
+  const full = render(SRC, sample);
+  const round = render(SRC, (x, y) => sampleIcon(x, y, true));
+  const fg = render(SRC, sampleForeground);
+  const DENSITIES = [['mdpi', 1], ['hdpi', 1.5], ['xhdpi', 2], ['xxhdpi', 3], ['xxxhdpi', 4]];
+  const written = [];
+  for (const [name, k] of DENSITIES) {
+    const dir = path.join(RES, `mipmap-${name}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const iconSize = Math.round(48 * k);
+    const fgSize = Math.round(108 * k); // 自适应图标画布固定 108dp
+    fs.writeFileSync(path.join(dir, 'ic_launcher.png'), encodePNG(iconSize, iconSize, downscale(full, SRC, iconSize)));
+    fs.writeFileSync(path.join(dir, 'ic_launcher_round.png'), encodePNG(iconSize, iconSize, downscale(round, SRC, iconSize)));
+    fs.writeFileSync(path.join(dir, 'ic_launcher_foreground.png'), encodePNG(fgSize, fgSize, downscale(fg, SRC, fgSize)));
+    written.push(`mipmap-${name} ${iconSize}/${fgSize}`);
+  }
+  console.log(`Android 图标已写入 ${RES}\n  ${written.join('\n  ')}`);
+}
+
+if (process.argv.includes('--android')) {
+  writeAndroidIcons();
+} else {
+  writeWindowsIcons();
+}

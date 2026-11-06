@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 web/css/style.css 的背景色变量一致(#08090b):窗口背景与启动背景统一用它,避免浅色主题闪白 -->
+    <color name="rekg_bg">#FF08090B</color>
+</resources>

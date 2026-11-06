@@ -7,6 +7,8 @@
   --lyric-highlight: #fff0b8;
   --lyric-glow: #9cffdf;
   --dl-font-size: 40px;
+  /* 当前句字号固定(不随 A−/A+ 变化);20px = 先生 2026-11-06 第二次收缩(原来 30 还嫌大,约 0.65 倍) */
+  --dl-cur-size: 20px;
   --dl-opacity: 0.92;
   /* 无背景下的文字描边:深色多层阴影 = 任何壁纸上都读得清 */
   --dl-outline: 0 1px 2px rgba(0, 0, 0, .92), 0 0 6px rgba(0, 0, 0, .78), 0 0 14px rgba(0, 0, 0, .5);
@@ -61,7 +63,7 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
 .chip:hover { background: rgba(0, 245, 212, .28); color: #fff; }
 #dl-opacity { width: 64px; accent-color: #00f5d4; cursor: pointer; }
 .dl-current {
-  font-size: var(--dl-font-size);
+  font-size: var(--dl-cur-size);
   font-weight: 600;
   color: var(--lyric-primary);
   opacity: var(--dl-opacity);
@@ -74,10 +76,26 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
   -webkit-box-orient: vertical;
   word-break: break-all;
 }
+/* 双语译文:挂在当前句下面(酷狗桌面歌词同款),固定小字 —— 不跟当前句一起放大,
+   先生 2026-11-06 明确「底下要的是中文小字翻译,不是大字」;无译文时不占位 */
+.dl-trans {
+  margin-top: 1px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--lyric-secondary);
+  opacity: .86;
+  line-height: 1.35;
+  text-align: center;
+  text-shadow: var(--dl-outline);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-trans:empty { display: none; }
 .dl-current.nodata {
   color: var(--lyric-secondary);
   text-shadow: var(--dl-outline);
-  font-size: calc(var(--dl-font-size) * .5);
+  font-size: calc(var(--dl-cur-size) * .5);
 }
 .dl-current.reenter { animation: lyricIn .28s ease; }
 @keyframes lyricIn {

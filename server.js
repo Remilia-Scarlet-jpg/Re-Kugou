@@ -505,12 +505,209 @@ function proxyPlaylistById(res, id) {
   );
 }
 
+// ---------- AI 歌词翻译(可选:配置了 LLM 才工作) ----------
+// 为什么放服务端:key 不能进页面(localStorage 谁都能看),浏览器直连第三方还有 CORS;
+// 放这里还能统一做长度上限/超时/错误脱敏。未配置 key 时返回 {ok:false, reason:'nokey'},前端静默降级。
+// 配置(任意 OpenAI 兼容端点):REKG_LLM_KEY / REKG_LLM_URL / REKG_LLM_MODEL
+//   本地 Ollama:REKG_LLM_URL=http://127.0.0.1:11434/v1/chat/completions,KEY 随便填
+//   DeepSeek  :默认 url,填 KEY 即可
+// 调试:REKG_LLM_MOCK=1 → 不联网,直接回「第N行译文」,用来验前端链路
+const LLM_URL = process.env.REKG_LLM_URL || 'https://api.deepseek.com/chat/completions';
+/** 密钥文件:应用内设置写这里(%APPDATA%\REKG\llm-key.txt),环境变量优先但不会被它覆盖 */
+const KEY_FILE = process.env.APPDATA ? path.join(process.env.APPDATA, 'REKG', 'llm-key.txt') : '';
+/** 密钥兜底:没有环境变量时读 %APPDATA%\REKG\llm-key.txt(应用内「设置密钥」也写这里) */
+function readKeyFile() {
+  try {
+    if (!KEY_FILE) return '';
+    const text = fs.readFileSync(KEY_FILE, 'utf8');
+    const first = text.trim().split(/\r?\n/)[0].trim();
+    return first.startsWith('sk-') ? first : '';
+  } catch {
+    return '';
+  }
+}
+// 可变:应用内保存后立刻生效,不需要重启
+let llmKey = process.env.REKG_LLM_KEY || readKeyFile();
+let llmKeySource = process.env.REKG_LLM_KEY ? 'env' : llmKey ? 'file' : '';
+const maskKey = (k) => (!k ? '' : k.length <= 9 ? `${k.slice(0, 2)}****` : `${k.slice(0, 5)}****${k.slice(-4)}`);
+const keyInfo = () => ({ configured: !!llmKey, masked: maskKey(llmKey), source: llmKeySource, file: KEY_FILE || '' });
+
+function saveKeyFile(key) {
+  fs.mkdirSync(path.dirname(KEY_FILE), { recursive: true });
+  fs.writeFileSync(KEY_FILE, `${key}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+
+/** GET 读状态 / POST 保存、清除、把当前密钥落盘;一律只回掩码,不回明文 */
+async function handleKeyApi(req, res) {
+  // 必须是 JSON:浏览器跨站 <form> 设不了这个 Content-Type,fetch 则会触发 CORS 预检(本服务不回 ACAO)
+  if (!/^application\/json/i.test(String(req.headers['content-type'] || ''))) {
+    return sendJson(res, 415, { ok: false, error: '需要 application/json' });
+  }
+  const body = await readJsonBody(req, 8192);
+  if (!body) return sendJson(res, 400, { ok: false, error: 'bad request' });
+  try {
+    if (body.action === 'persist') {
+      if (!llmKey) return sendJson(res, 200, { ok: false, error: '当前没有可保存的密钥', ...keyInfo() });
+      saveKeyFile(llmKey);
+      llmKeySource = 'file';
+      return sendJson(res, 200, { ok: true, persisted: true, ...keyInfo() });
+    }
+    const key = typeof body.key === 'string' ? body.key.trim() : null;
+    if (key === '') {
+      if (KEY_FILE && fs.existsSync(KEY_FILE)) fs.rmSync(KEY_FILE, { force: true });
+      const envLocked = llmKeySource === 'env';
+      if (!envLocked) {
+        llmKey = '';
+        llmKeySource = '';
+      }
+      return sendJson(res, 200, { ok: true, cleared: true, envLocked, ...keyInfo() });
+    }
+    if (!key || !key.startsWith('sk-')) {
+      return sendJson(res, 400, { ok: false, error: '密钥需以 sk- 开头', ...keyInfo() });
+    }
+    if (!KEY_FILE) return sendJson(res, 500, { ok: false, error: '当前环境没有 APPDATA,无法保存' });
+    saveKeyFile(key);
+    llmKey = key;
+    llmKeySource = 'file';
+    return sendJson(res, 200, { ok: true, ...keyInfo() });
+  } catch (e) {
+    console.log('[llm-key] save failed:', e?.code || 'error');
+    return sendJson(res, 500, { ok: false, error: '保存失败(可能被安全软件拦截)' });
+  }
+}
+const LLM_MODEL = process.env.REKG_LLM_MODEL || 'deepseek-chat';
+const LLM_MOCK = process.env.REKG_LLM_MOCK === '1';
+const LLM_TIMEOUT = Number(process.env.REKG_LLM_TIMEOUT || 45000);
+const TRANSLATE_MAX_LINES = 160;
+
+/** 「先通读全篇再逐句翻」= 先生要的效果:整首歌词一次性交给模型,让它带着全局语境落每一行 */
+const TRANSLATE_SYSTEM = [
+  '你是资深歌词译者,负责把外文歌词译成简体中文。',
+  '工作方式:先在内部完整通读全篇,把握整首歌的主题、情绪走向与叙事线索;再逐行翻译,让每一句都贴合上下文,不要逐字直译。',
+  '要求:保持原文的语气与意象;人名与专有名词保留原文;输出行数必须与输入完全一致(空行也占位)。',
+  '输出:只输出一个 JSON 字符串数组,元素是每行对应的中文译文,顺序与输入一致;不要解释、不要代码块标记、不要多余文字。',
+].join('');
+
+function readJsonBody(req, limit = 262144) {
+  return new Promise((resolve) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) {
+        resolve(null);
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {
+        resolve(null);
+      }
+    });
+    req.on('error', () => resolve(null));
+  });
+}
+
+/** 模型输出 → 定长译文数组(容忍 ```json 围栏、数组外层废话、逐行纯文本三种形态) */
+function parseTranslations(content, expected) {
+  const text = String(content || '')
+    .trim()
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/, '')
+    .trim();
+  let arr = null;
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start >= 0 && end > start) {
+    try {
+      arr = JSON.parse(text.slice(start, end + 1));
+    } catch {
+      arr = null;
+    }
+  }
+  if (!Array.isArray(arr)) {
+    arr = text
+      .split(/\r?\n/)
+      .map((l) => l.replace(/^\s*(?:\d+[.)、]|[-*])\s*/, '').trim())
+      .filter(Boolean);
+  }
+  const out = arr.map((x) => String(x ?? '').replace(/\s+/g, ' ').trim());
+  while (out.length < expected) out.push('');
+  return out.slice(0, expected);
+}
+
+async function proxyTranslate(req, res) {
+  const body = await readJsonBody(req);
+  if (!body || !Array.isArray(body.lines)) return sendJson(res, 400, { ok: false, error: 'bad request' });
+  const lines = body.lines.slice(0, TRANSLATE_MAX_LINES).map((l) => String(l ?? '').trim());
+  if (!lines.some(Boolean)) return sendJson(res, 400, { ok: false, error: 'empty lines' });
+  if (LLM_MOCK) {
+    return sendJson(res, 200, { ok: true, mock: true, translations: lines.map((_, i) => `第${i + 1}行译文`) });
+  }
+  if (!llmKey) return sendJson(res, 200, { ok: false, reason: 'nokey', error: '未配置翻译密钥' });
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), LLM_TIMEOUT);
+  try {
+    const r = await fetch(LLM_URL, {
+      method: 'POST',
+      signal: ac.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${llmKey}` },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        temperature: 0.3,
+        stream: false,
+        messages: [
+          { role: 'system', content: TRANSLATE_SYSTEM },
+          {
+            role: 'user',
+            content: `歌名:${String(body.song || '').slice(0, 120)}\n歌词(JSON 数组,共 ${lines.length} 行):\n${JSON.stringify(lines)}`,
+          },
+        ],
+      }),
+    });
+    if (!r.ok) {
+      console.log(`[translate] upstream ${r.status}`); // 只打状态码,不打 key/正文
+      return sendJson(res, 200, { ok: false, reason: 'upstream', error: `翻译服务返回 ${r.status}` });
+    }
+    const data = await r.json();
+    const translations = parseTranslations(data?.choices?.[0]?.message?.content, lines.length);
+    if (!translations.some(Boolean)) return sendJson(res, 200, { ok: false, reason: 'empty', error: '翻译结果为空' });
+    return sendJson(res, 200, { ok: true, translations });
+  } catch (e) {
+    console.log('[translate] failed:', e?.name || 'error');
+    return sendJson(res, 200, {
+      ok: false,
+      reason: e?.name === 'AbortError' ? 'timeout' : 'error',
+      error: '翻译服务调用失败',
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const server = http.createServer((req, res) => {
   let url;
   try {
     url = new URL(req.url, 'http://localhost');
   } catch {
     return sendJson(res, 400, { ok: false, error: 'bad request' });
+  }
+
+  // AI 歌词翻译密钥(读写本机密钥文件):GET 只回掩码,POST 保存/清除/落盘
+  if (url.pathname === '/api/llm-key') {
+    if (req.method === 'GET' || req.method === 'HEAD') return sendJson(res, 200, { ok: true, ...keyInfo() });
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method not allowed' });
+    return handleKeyApi(req, res);
+  }
+
+  // AI 歌词翻译(POST,唯一允许的非 GET 路由):key 只留在本进程,页面永远拿不到
+  if (url.pathname === '/api/translate') {
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method not allowed' });
+    return proxyTranslate(req, res);
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {

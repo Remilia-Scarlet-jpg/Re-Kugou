@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标的背景层:酷狗风蓝渐变(与 scripts/gen_icon.js 画的位图同一套配色)。
+  用 drawable 而不是 @color,是为了在自适应图标里也能吃到渐变,和桌面图标观感一致。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:endColor="#0070EB"
+        android:startColor="#3FABFF"
+        android:type="linear" />
+</shape>

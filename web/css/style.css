@@ -814,6 +814,23 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   font-weight: 600;
   text-shadow: 0 0 18px rgba(0, 245, 212, 0.7);
 }
+/* 双语歌词:译文挂在原句下方(对齐酷狗 PC 播放器),小一号、淡一档;当前句提亮一点 */
+.lyric-trans {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--text-2);
+  opacity: .72;
+}
+.lyric-line.active .lyric-trans {
+  font-size: 13px;
+  color: rgba(255, 255, 255, .82);
+  opacity: .9;
+}
+/* 「译」按钮:开启态点亮(与桌词锁定按钮同款薄荷底) */
+#lyric-trans-btn.on { color: #fff; background: rgba(0, 245, 212, 0.30); }
 .lyric-empty {
   text-align: center;
   color: var(--text-2);
@@ -1053,6 +1070,23 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   -webkit-backdrop-filter: blur(6px);
 }
 .login-modal.open { display: flex; }
+/* AI 翻译密钥弹窗(复用 .login-modal/.login-box 的外壳,只补输入框与状态行) */
+.llm-status { font-size: 12.5px; color: var(--text-2); line-height: 1.55; margin: 4px 2px 10px; }
+.llm-status b { color: var(--accent-1); font-weight: 600; }
+.llm-status .llm-from { opacity: .7; margin-left: 4px; }
+.llm-input {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .06);
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+}
+.llm-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(0, 245, 212, .35); }
+.llm-input::placeholder { color: rgba(255, 255, 255, .32); }
 .login-box {
   width: 300px;
   padding: 20px 24px 18px;
@@ -1079,6 +1113,16 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
 }
 .qr-status { margin-top: 12px; font-size: 13px; color: var(--text-2, #aab); }
 .qr-status.warn { color: var(--danger); }
+/* 二维码「保存到相册」:仅 Android 出现(ui.js 解除 hidden),桌面版保持 hidden 不占位 */
+#qr-save {
+  display: block;
+  width: 100%;
+  margin: 10px 0 2px;
+  padding: 10px 14px;
+  min-height: 44px;
+  font-size: 13px;
+}
+#qr-save[hidden] { display: none; }
 .login-tip { margin-top: 8px; font-size: 11px; color: rgba(170, 170, 187, 0.6); line-height: 1.5; }
 
 /* ============ 视觉 DIY 控制台(无边框玻璃,全站 border 铁律) ============ */
@@ -1239,4 +1283,106 @@ body.ui-hidden .playerbar { transform: translateY(14px); }
 }
 body.ui-hidden #ui-show-btn { opacity: .28; pointer-events: auto; }
 body.ui-hidden #ui-show-btn:hover { opacity: .95; }
+
+/* ============ 全屏歌词(手机上替代桌词小窗) ============ */
+/* 由歌词抽屉头「大字」进入,右上角 ✕ / 点背景 / Esc / Android 返回键退出。
+   刻意做成纯 DOM 覆盖层而不是原生悬浮窗:零权限、零原生代码,桌面与手机表现一致。 */
+.lyric-full {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: calc(56px + env(safe-area-inset-top, 0px)) 24px calc(40px + env(safe-area-inset-bottom, 0px));
+  background: radial-gradient(120% 80% at 50% 0%, rgba(0, 245, 212, 0.10), rgba(4, 5, 8, 0.84) 62%);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  text-align: center;
+}
+.lyric-full.open { display: flex; }
+.lyric-full-inner { width: 100%; max-width: 540px; }
+.lyric-full-title {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  margin-bottom: 20px;
+}
+.lyric-full-prev,
+.lyric-full-next {
+  font-size: 17px;
+  line-height: 1.5;
+  color: rgba(232, 236, 239, 0.42);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.75);
+  min-height: 1.5em;
+}
+.lyric-full-prev { margin-bottom: 12px; }
+.lyric-full-next { margin-top: 12px; }
+.lyric-full-cur {
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #fff;
+  min-height: 2.9em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85), 0 0 24px rgba(0, 245, 212, 0.22);
+}
+/* 全屏歌词里的译文:跟着大字走,别用侧栏那套 12px */
+.lyric-full-cur .lyric-trans {
+  margin-top: 8px;
+  font-size: 16px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, .74);
+  opacity: 1;
+}
+.lyric-full-close {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: 12px;
+  min-width: 44px;
+  min-height: 44px;
+}
+@media (max-width: 640px) {
+  .lyric-full-cur { font-size: 23px; }
+  .lyric-full-prev, .lyric-full-next { font-size: 15px; }
+}
+
+/* ============ Android / 手机竖屏(移植第二批) ============ */
+/* 桌面播放条是三列定宽(歌名 300 + 控件 360 + 音量 210 ≈ 900px),手机上必然溢出,
+   这里改为三行堆叠:①歌名 ②控件+进度 ③静音/隐藏。触控目标放大到 ≥44px,
+   底部补安全区(iPhone 手势条 / Android 手势导航),并把抽屉底边抬到新播放条之上。
+   ⚠️ 数值来自布局计算,真机截图后可能还要微调(scripts/mobile_shot.mjs 可出图)。 */
+@media (max-width: 640px) {
+  .playerbar {
+    left: 8px; right: 8px; transform: none;
+    bottom: 8px; height: auto; max-width: none;
+    flex-wrap: wrap; gap: 8px 10px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-radius: 18px;
+  }
+  .np { flex: 1 1 100%; order: 1; width: auto; gap: 10px; }
+  .np-cover { width: 44px; height: 44px; }
+  .np-name { font-size: 13px; }
+  .np-artist { font-size: 11px; margin-top: 2px; }
+  .controls { flex: 1 1 100%; order: 2; width: auto; gap: 4px; }
+  .ctrl-row { gap: 20px; }
+  /* 触控面显式给到 ≥44px(iOS/Android 的最小可点尺寸):图标 22px + padding 12px×2 = 46px。
+     不要只靠 padding 目测 —— S36 有硬断言,改小会直接挂测试 */
+  .ctrl { padding: 12px; font-size: 20px; min-width: 44px; min-height: 44px; }
+  .ctrl svg { width: 22px; height: 22px; }
+  .ctrl-play { width: 48px; height: 48px; font-size: 18px; }
+  .volume { flex: 0 0 auto; order: 3; width: auto; margin-left: auto; gap: 6px; }
+  #volume, #volume-num { display: none; }        /* 手机用系统音量键,把宽度让给按钮 */
+  .volume .chip { padding: 12px 14px; min-width: 44px; min-height: 44px; } /* 静音 / 隐藏 */
+  /* 抽屉:近满宽,底边抬到堆叠后的播放条(~155px)之上 */
+  .right-drawer { left: 10px; right: 10px; width: auto; top: 10px; bottom: 168px; }
+  .lyric-drawer { left: 10px; right: 10px; width: auto; top: 10px; bottom: 168px; }
+  #ui-show-btn { bottom: 168px; }                /* 纯净模式恢复胶囊同理上移 */
+  .login-box { width: min(340px, calc(100vw - 40px)); }
+}
+
+/* 桌面专属能力在 Android 上没有对应物:「桌词」小窗是 window.open 独立置顶窗 +
+   Electron 的鼠标穿透,手机上既开不了也没法令其置顶(悬浮窗要另做,见 docs/android)。
+   v1 先隐藏,避免点了没反应。 */
+html[data-platform="android"] #desktop-lyrics-btn,
+html[data-platform="android"] #dl-lock-btn { display: none; }
 

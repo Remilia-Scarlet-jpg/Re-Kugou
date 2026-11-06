@@ -1,7 +1,7 @@
 {
   "name": "star-music",
   "productName": "REKG",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "private": true,
   "description": "RE:KG - 可视化音乐播放器(酷狗数据源,仅供学习交流)",
   "author": "vmp",
@@ -12,9 +12,21 @@
     "start:electron": "electron .",
     "electron:debug": "set ELECTRON_DISABLE_SECURITY_WARNINGS=1&& electron . --remote-debugging-port=9229",
     "dist": "node scripts/stage-app.js && electron-builder --win",
-    "test": "node scripts/cdp_test.js"
+    "test": "node scripts/cdp_test.js",
+    "mobile:shot": "node scripts/mobile_shot.mjs",
+    "android:add": "cap add android",
+    "android:stage": "node scripts/android-stage-node.mjs",
+    "android:sync": "node scripts/android-stage-node.mjs && cap sync android",
+    "android:open": "cap open android",
+    "android:build": "node scripts/android-stage-node.mjs && cap copy android && cd android && gradlew assembleDebug",
+    "android:apk": "node scripts/android-stage-node.mjs && cap copy android && cd android && gradlew assembleRelease && cd .. && node scripts/android-sign.mjs",
+    "android:sign": "node scripts/android-sign.mjs"
   },
   "devDependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/cli": "8.5.3",
+    "@capacitor/core": "8.5.3",
+    "capacitor-nodejs": "https://github.com/hampoelz/capacitor-nodejs/releases/download/v1.0.0-beta.9/capacitor-nodejs.tgz",
     "electron": "43.4.0",
     "electron-builder": "26.15.3"
   },
@@ -31,7 +43,9 @@
       "electron/**/*",
       "server.js",
       "web/**/*",
-      "!**/*.map"
+      "!**/*.map",
+      "!web/nodejs/**",
+      "!node_modules/capacitor-nodejs/**"
     ],
     "extraResources": [
       {
@@ -70,5 +84,6 @@
       "deleteAppDataOnUninstall": false,
       "artifactName": "${productName} Setup ${version}.${ext}"
     }
-  }
+  },
+  "dependencies": {}
 }

@@ -1,0 +1,22 @@
+{
+  "appId": "com.vmp.starmusic",
+  "appName": "REKG",
+  "webDir": "web",
+  "server": {
+    "url": "http://localhost:3001",
+    "cleartext": true,
+    "errorPath": "error.html"
+  },
+  "plugins": {
+    "CapacitorNodeJS": {
+      "nodeDir": "nodejs",
+      "startMode": "auto"
+    }
+  },
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": true
+  },
+  "loggingBehavior": "none",
+  "zoomEnabled": false
+}

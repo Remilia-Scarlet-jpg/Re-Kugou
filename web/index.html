@@ -104,10 +104,23 @@
           <img id="lyric-cover" class="lyric-cover" alt="封面" src="">
           <span id="lyric-title">歌词</span>
         </div>
+        <button id="lyric-trans-btn" class="chip" title="AI 译文:关(点击开启 · 需在本地服务配置密钥)">译</button>
+        <button id="lyric-full-btn" class="chip" title="全屏歌词(整屏大字)">大字</button>
         <button id="lyric-close" class="chip">✕</button>
       </div>
       <div class="lyric-body" id="lyric-body"></div>
     </aside>
+  </div>
+
+  <!-- 全屏歌词:整屏大字,桌词小窗在手机上的替代(零原生代码、零新权限) -->
+  <div class="lyric-full" id="lyric-full">
+    <button id="lyric-full-close" class="chip lyric-full-close" title="退出全屏(Esc)">✕</button>
+    <div class="lyric-full-inner">
+      <div class="lyric-full-title" id="lyric-full-title">未在播放</div>
+      <div class="lyric-full-prev" id="lyric-full-prev"></div>
+      <div class="lyric-full-cur" id="lyric-full-cur"></div>
+      <div class="lyric-full-next" id="lyric-full-next"></div>
+    </div>
   </div>
 
   <!-- 纯净模式恢复入口:平时完全透明不可点,只有 body.ui-hidden 时才浮现(勿删,否则进去出不来) -->
@@ -124,7 +137,27 @@
       </div>
       <img id="qr-img" class="qr-img" alt="登录二维码">
       <div class="qr-status" id="qr-status">正在获取二维码…</div>
+      <!-- Android 专属:同一部手机扫不了自己的屏幕 → 存进相册后用酷狗 App「扫一扫 → 相册」自扫 -->
+      <button id="qr-save" class="btn-accent" hidden>保存二维码到相册</button>
       <div class="login-tip">登录后展示你的 VIP 状态;VIP 歌曲可播放,音质最高 320k</div>
+    </div>
+  </div>
+
+  <!-- AI 翻译密钥设置弹窗:点「译」且未配置时自动弹出,也可从「我的酷狗」页进来 -->
+  <div class="login-modal" id="llm-modal">
+    <div class="login-box">
+      <div class="login-head">
+        <span>AI 歌词翻译</span>
+        <button id="llm-close" class="chip">✕</button>
+      </div>
+      <div class="llm-status" id="llm-status">正在检查…</div>
+      <input id="llm-key-input" class="llm-input" type="password" placeholder="粘贴 sk- 开头的密钥" autocomplete="off" spellcheck="false">
+      <div class="user-actions">
+        <button class="btn-accent" id="llm-save">保存密钥</button>
+        <button class="chip" id="llm-persist" title="把当前正在用的(环境变量里的)密钥写进密钥文件" hidden>存为密钥文件</button>
+        <button class="chip" id="llm-clear" title="删除本机保存的密钥">清除</button>
+      </div>
+      <div class="login-tip">密钥只保存在这台电脑的本地服务里(%APPDATA%\REKG\llm-key.txt),不会上传;译文按歌曲缓存,重播不再请求。</div>
     </div>
   </div>
 

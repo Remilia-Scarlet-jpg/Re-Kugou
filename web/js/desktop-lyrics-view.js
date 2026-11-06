@@ -18,6 +18,7 @@ const el = {
   drag: document.getElementById('dl-drag'),
   title: document.getElementById('dl-title'),
   current: document.getElementById('dl-current'),
+  trans: document.getElementById('dl-trans'),
   next: document.getElementById('dl-next'),
   meta: document.getElementById('dl-meta'),
   fontDown: document.getElementById('dl-font-down'),
@@ -113,13 +114,17 @@ function render() {
   const line = idx >= 0 ? snapshot.lyric[idx] : null;
   const nextLine = idx >= 0 && idx + 1 < snapshot.lyric.length ? snapshot.lyric[idx + 1] : null;
   const curText = line ? line.text : (snapshot.lyricLoaded ? '' : '暂无歌词');
-  if (curText !== lastText) {
-    lastText = curText;
+  const curTrans = line?.trans || '';
+  // 译文也算「换句」信号:同一句补上译文时要重放淡入
+  const sig = `${curText}\u0001${curTrans}`;
+  if (sig !== lastText) {
+    lastText = sig;
     el.current.classList.remove('reenter');
     void el.current.offsetWidth; // 强制 reflow 重启动画
     el.current.classList.add('reenter');
   }
   el.current.textContent = curText;
+  el.trans.textContent = curTrans;
   el.current.classList.toggle('nodata', !line && !snapshot.lyricLoaded);
   el.next.textContent = nextLine ? nextLine.text : '';
 }

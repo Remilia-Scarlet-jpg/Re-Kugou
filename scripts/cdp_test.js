@@ -761,14 +761,23 @@ async function newTarget() {
       check('S23 桌词:跨行外推 → 第三句', await poll2("document.getElementById('dl-current').textContent === '第三句'", 8000),
         await ev2("document.getElementById('dl-current').textContent"));
       // 字号连点:font-down×3 本地立即生效(旧 bug 过期快照基准连点失效)
+      // ⚠️ 2026-11-05 起语义变了:当前句固定 20px(2026-11-06 从 40 → 30 → 20),滑杆只调「下一句」的等待字号
       await ev2("(()=>{const b=document.getElementById('dl-font-down'); b.click(); b.click(); b.click(); return true;})()");
-      check('S23 桌词:连点 font-down×3 → 34px', await poll2("getComputedStyle(document.getElementById('dl-current')).fontSize === '34px'", 5000),
-        await ev2("getComputedStyle(document.getElementById('dl-current')).fontSize"));
+      check('S23 桌词:连点 font-down×3 → 下一句 14.28px,当前句仍固定 20px', await poll2(`(()=>{
+        const cur=getComputedStyle(document.getElementById('dl-current')).fontSize;
+        const nxt=parseFloat(getComputedStyle(document.getElementById('dl-next')).fontSize);
+        return cur==='20px' && Math.abs(nxt-34*0.42)<0.5;
+      })()`, 5000),
+        await ev2("[getComputedStyle(document.getElementById('dl-current')).fontSize,getComputedStyle(document.getElementById('dl-next')).fontSize].join(' / ')"));
       check('S23 桌词:回写主窗 fx 收敛 34', await poll("window.__APP_FX.dlFontSize === 34", 5000), `${await ev('window.__APP_FX.dlFontSize')}`);
-      // 面板改值 → subscribe 推小窗 48px
+      // 面板改值 → subscribe 推小窗 48px(同样只作用于下一句)
       await ev("(async()=>{const {setFx}=await import('/js/fx.js'); setFx('dlFontSize', 48); return true;})()");
-      check('S23 桌词:面板 48 推小窗生效', await poll2("getComputedStyle(document.getElementById('dl-current')).fontSize === '48px'", 5000),
-        await ev2("getComputedStyle(document.getElementById('dl-current')).fontSize"));
+      check('S23 桌词:面板 48 推小窗生效(只影响下一句)', await poll2(`(()=>{
+        const cur=getComputedStyle(document.getElementById('dl-current')).fontSize;
+        const nxt=parseFloat(getComputedStyle(document.getElementById('dl-next')).fontSize);
+        return cur==='20px' && Math.abs(nxt-48*0.42)<0.5;
+      })()`, 5000),
+        await ev2("[getComputedStyle(document.getElementById('dl-current')).fontSize,getComputedStyle(document.getElementById('dl-next')).fontSize].join(' / ')"));
       // 透明度滑杆:本地即时 + 回写收敛 + 拖动守卫(快照流不顶回拖动中的滑杆)
       await ev2("(()=>{const s=document.getElementById('dl-opacity'); s.value='0.5'; s.dispatchEvent(new Event('input',{bubbles:true})); return true;})()");
       // 读内联 CSS 变量:computed opacity 会被 reenter 动画插值(改 --dl-opacity 触发 Chrome 重启动画)
@@ -1837,6 +1846,220 @@ async function newTarget() {
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
       check('S35 Esc:也能退出纯净模式(两条退路都要好使)', await poll(
         "!document.body.classList.contains('ui-hidden') && window.__APP_UI_HIDDEN === '0'", 3000));
+    });
+
+    // S36 手机视口布局(390x844 · Android 移植):桌面三列定宽的播放条在手机上必须改成三行堆叠,
+    // 不许横向溢出、不许把按钮挤到点不到;desktop-only 控件要按 data-platform 隐藏。
+    await step('S36', async () => {
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 390, height: 844, deviceScaleFactor: 3, mobile: true,
+      });
+      await sleep(700);
+      const m = await ev(`(() => {
+        const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect();
+          return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), bottom: Math.round(b.bottom) }; };
+        const bar = document.querySelector('.playerbar');
+        return {
+          vw: innerWidth, vh: innerHeight,
+          scrollW: document.documentElement.scrollWidth,
+          bar: r('.playerbar'), np: r('.np'), controls: r('.controls'), vol: r('.volume'),
+          play: r('#btn-play'), prev: r('#btn-prev'), hide: r('#ui-hide-btn'),
+          barOverflow: bar.scrollWidth - Math.ceil(bar.clientWidth),
+        };
+      })()`);
+      check('S36 竖屏无横向溢出', !!m && m.scrollW <= m.vw + 1, `scrollW=${m?.scrollW} vw=${m?.vw}`);
+      check('S36 播放条完整落在视口内',
+        !!m && m.bar.x >= 0 && m.bar.x + m.bar.w <= m.vw + 1 && m.bar.bottom <= m.vh + 1, JSON.stringify(m?.bar));
+      check('S36 播放条内部不溢出(三行装得下)', !!m && m.barOverflow <= 1, `overflow=${m?.barOverflow}px`);
+      check('S36 三行堆叠:歌名在控件之上,控件在音量之上',
+        !!m && m.np.bottom <= m.controls.y + 1 && m.controls.bottom <= m.vol.y + 1,
+        JSON.stringify({ np: m?.np, controls: m?.controls, vol: m?.vol }));
+      const touch = (b) => !!b && b.h >= 44 && b.w >= 44;
+      check('S36 触控面 ≥44px(播放/上一首/隐藏)',
+        touch(m?.play) && touch(m?.prev) && touch(m?.hide),
+        JSON.stringify({ play: m?.play, prev: m?.prev, hide: m?.hide }));
+      // android 分支:桌词/锁定是 Electron 专属,手机必须隐藏(直接切 data-platform 验 CSS 分流)
+      const dlDisplay = await ev(`(() => {
+        const h = document.documentElement, old = h.dataset.platform;
+        h.dataset.platform = 'android';
+        const v = getComputedStyle(document.getElementById('desktop-lyrics-btn')).display;
+        h.dataset.platform = old;
+        return v;
+      })()`);
+      check('S36 android 分支:桌词按钮隐藏', dlDisplay === 'none', String(dlDisplay));
+      await cdp.send('Emulation.clearDeviceMetricsOverride');
+      check('S36 收尾:视口恢复', await poll('document.documentElement.clientWidth !== 390', 3000));
+    });
+
+    // S37 全屏歌词(Android 移植第 9 轮):桌词小窗在手机上不可用,替代方案是纯 DOM 覆盖层 ——
+    // 整屏大字,由歌词抽屉头「大字」进入,✕ / 点背景 / Esc / Android 返回键退出。零原生代码、零新权限。
+    await step('S37', async () => {
+      const init = await ev(`(()=>{const el=document.getElementById('lyric-full');
+        return { open: el.classList.contains('open'), display: getComputedStyle(el).display, flag: window.__APP_LYRIC_FULL }; })()`);
+      check('S37 初始:全屏歌词关闭', init?.open === false && init.display === 'none', JSON.stringify(init));
+      // 保证歌词抽屉是打开状态(前面的段落可能已开关过)
+      await ev(`(()=>{const d=document.getElementById('lyric-drawer');
+        if (!d.classList.contains('open')) document.getElementById('lyric-toggle').click(); return true; })()`);
+      await poll("document.getElementById('lyric-drawer').classList.contains('open')", 3000);
+      check('S37 抽屉头有「大字」入口', await ev("!!document.getElementById('lyric-full-btn')") === true);
+      await ev("document.getElementById('lyric-full-btn').click()");
+      check('S37 打开:覆盖层显示且标记置位', await poll(`(()=>{const el=document.getElementById('lyric-full');
+        return el.classList.contains('open') && window.__APP_LYRIC_FULL === '1'
+          && getComputedStyle(el).display === 'flex'; })()`, 3000));
+      const txt = await ev(`(()=>({
+        title: (document.getElementById('lyric-full-title').textContent || '').trim(),
+        cur: (document.getElementById('lyric-full-cur').textContent || '').trim(),
+      }))()`);
+      check('S37 内容:标题与当前行都有文本', !!txt?.title && !!txt?.cur, JSON.stringify(txt));
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      check('S37 Esc 关闭', await poll(`!document.getElementById('lyric-full').classList.contains('open')
+        && window.__APP_LYRIC_FULL === '0'`, 3000));
+      await ev("document.getElementById('lyric-full-btn').click()");
+      await poll("document.getElementById('lyric-full').classList.contains('open')", 2000);
+      await ev("document.getElementById('lyric-full-close').click()");
+      check('S37 ✕ 关闭', await poll("!document.getElementById('lyric-full').classList.contains('open')", 3000));
+      // 收尾:把歌词抽屉关掉,恢复进入本段前的状态
+      await ev(`(()=>{const d=document.getElementById('lyric-drawer');
+        if (d.classList.contains('open')) document.getElementById('lyric-toggle').click(); return true; })()`);
+      await poll("!document.getElementById('lyric-drawer').classList.contains('open')", 3000);
+    });
+
+    // S38 双语歌词(2026-11-05 先生要求):外文歌的译文挂在原句下方。
+    // 酷狗 LRC 的形态 = 原文行 + 紧随其后的一行译文(时间戳约在原句结束处),配对在纯函数层完成,
+    // 所以这里全部是确定性断言,不依赖网络。
+    await step('S38', async () => {
+      const pair = await ev(`(async()=>{
+        const { parseLRC } = await import('/js/lyrics.js');
+        const lrc = [
+          '[00:01.00]There ain\\'t no gold',
+          '[00:04.00]并没有宝藏',
+          '[00:05.00]In this river',
+          '[00:08.00]在这条河流中',
+        ].join('\\n');
+        const out = parseLRC(lrc);
+        return { n: out.length, trans0: out[0]?.trans, trans1: out[1]?.trans, t0: out[0]?.time };
+      })()`);
+      check('S38 双语:译文并入原句(4 行 → 2 行)', pair?.n === 2 && pair.trans0 === '并没有宝藏' && pair.trans1 === '在这条河流中',
+        JSON.stringify(pair));
+      const same = await ev(`(async()=>{const { parseLRC } = await import('/js/lyrics.js');
+        return parseLRC('[00:01.00]第一句中文\\n[00:02.00]第二句中文').length;})()`);
+      check('S38 双语:同语种相邻行不合并', same === 2, String(same));
+      const plain = await ev(`(async()=>{const { parsePlainLyric } = await import('/js/lyrics.js');
+        const r = parsePlainLyric('English one\\n中文一\\nEnglish two\\n中文二');
+        return { n: r.length, t0: r[0]?.trans, time0: r[0]?.time };})()`);
+      check('S38 无时间轴歌词:按「原文/译文交替」静态配对', plain?.n === 2 && plain.t0 === '中文一' && plain.time0 === null,
+        JSON.stringify(plain));
+      const dom = await ev(`(async()=>{
+        const { LyricsView } = await import('/js/lyrics.js');
+        const body = document.getElementById('lyric-body');
+        const save = body.innerHTML;
+        const v = new LyricsView({ title: document.getElementById('lyric-title'), body, onSeek(){}, toast(){} });
+        v.lines = [{ time: 1, text: 'Original line', trans: '译文一行' }, { time: 5, text: 'Second line' }];
+        v._renderLines();
+        const rows = document.querySelectorAll('#lyric-body .lyric-line');
+        const tr = rows[0]?.querySelector('.lyric-trans');
+        const ok = rows.length === 2 && !!tr && tr.textContent === '译文一行' && rows[1]?.querySelector('.lyric-trans') == null;
+        body.innerHTML = save;
+        return { ok, rows: rows.length, tr: tr ? tr.textContent : null };
+      })()`);
+      check('S38 歌词抽屉:译文渲染在原句下方,无译文的行不带', dom?.ok === true, JSON.stringify(dom));
+    });
+
+    // S39 AI 歌词翻译(2026-11-06 先生要求):酷狗接口不给译文的外文歌,按需调本地服务 → LLM。
+    // 全部断言不联网(fetch 打桩 + 纯函数判据);真实调用需要服务端配 REKG_LLM_KEY,只能真机验。
+    await step('S39', async () => {
+      const btn = await ev(`(()=>{const b=document.getElementById('lyric-trans-btn');
+        return {exists:!!b, on:b?.classList.contains('on'), text:b?.textContent};})()`);
+      check('S39 「译」按钮在歌词抽屉头且默认关闭',
+        btn?.exists === true && btn.text === '译' && btn.on === false, JSON.stringify(btn));
+      // 打桩 /api/llm-key 让「译」认为密钥已配置(未配置时会弹设置窗,那是 S40 的事)
+      await ev(`(()=>{window.__realFetch = window.fetch;
+        window.fetch = (u, o) => String(u).includes('/api/llm-key')
+          ? Promise.resolve({ json: async () => ({ ok:true, configured:true, masked:'sk-te****test', source:'file' }) })
+          : window.__realFetch(u, o);
+        return true;})()`);
+      await ev("document.getElementById('lyric-trans-btn').click()");
+      const st = await poll2(`(()=>{const s=JSON.parse(localStorage.getItem('vmp.lyricTrans.v1')||'{}');
+        return s.on === true ? {on:s.on, cls:document.getElementById('lyric-trans-btn').classList.contains('on')} : null;})()`, 4000);
+      check('S39 点开:开关落盘 + 按钮点亮', st?.on === true && st.cls === true, JSON.stringify(st));
+      const stub = await ev(`(async()=>{
+        const { translateLines, getCached, clearCached } = await import('/js/translate.js');
+        const real = window.fetch;
+        window.fetch = async () => ({ json: async () => ({ ok:true, translations:['译文一','译文二'] }) });
+        let r;
+        try { r = await translateLines({ hash: '__t39__', name:'x', artists:'y' }, ['Line A','Line B']); }
+        finally { window.fetch = real; }
+        const cached = getCached('__t39__');
+        clearCached('__t39__');
+        return { ok:r?.ok, first:r?.translations?.[0], cached:cached?.length, after:getCached('__t39__') };
+      })()`);
+      check('S39 链路:译文回填并写入按曲目 hash 的缓存',
+        stub?.ok === true && stub.first === '译文一' && stub.cached === 2 && stub.after === null, JSON.stringify(stub));
+      const need = await ev(`(async()=>{const { needsTranslation } = await import('/js/translate.js');
+        return { zh: needsTranslation(['第一句中文','第二句中文','第三句中文']),
+                 jp: needsTranslation(['水面を覗き込んだ','１人きりの夏の日']),
+                 en: needsTranslation(['There aint no gold','In this river']) };})()`);
+      check('S39 判据:中文歌不翻,日文/英文要翻',
+        need?.zh === false && need.jp === true && need.en === true, JSON.stringify(need));
+      // 收尾:恢复 fetch、关掉开关并清掉测试写入
+      await ev("if (window.__realFetch) { window.fetch = window.__realFetch; delete window.__realFetch; } true");
+      await ev("document.getElementById('lyric-trans-btn').click()");
+      await ev("localStorage.removeItem('vmp.lyricTrans.v1')");
+      await ev("document.getElementById('lyric-trans-btn').classList.remove('on')");
+    });
+
+    // S40 AI 翻译密钥设置(2026-11-06 先生要求):客户端内可配密钥,没密钥时点「译」直接给设置位置。
+    // 不写真实密钥:全部靠 fetch 打桩,绝不碰用户机器上的 %APPDATA%\REKG\llm-key.txt。
+    await step('S40', async () => {
+      const base = await ev(`(()=>({ modal: !!document.getElementById('llm-modal'),
+        open: document.getElementById('llm-modal')?.classList.contains('open') === true,
+        marker: window.__APP_LLM_MODAL,
+        hasInput: !!document.getElementById('llm-key-input'),
+        inputType: document.getElementById('llm-key-input')?.type }))()`);
+      check('S40 密钥弹窗存在、默认关闭、有密码输入框',
+        base?.modal === true && base.open === false && base.marker === '0' && base.hasInput === true && base.inputType === 'password',
+        JSON.stringify(base));
+
+      // 打桩「未配置」→ 点「译」应弹设置窗,且开关不被打开
+      await ev(`(()=>{window.__realFetch = window.fetch;
+        window.fetch = (u, o) => String(u).includes('/api/llm-key')
+          ? Promise.resolve({ json: async () => ({ ok:true, configured:false, masked:'', source:'' }) })
+          : window.__realFetch(u, o);
+        localStorage.removeItem('vmp.lyricTrans.v1');
+        return true;})()`);
+      await ev("document.getElementById('lyric-trans-btn').click()");
+      const noKey = await poll2(`(()=>{const m=document.getElementById('llm-modal');
+        if (!m.classList.contains('open')) return null;
+        const s = JSON.parse(localStorage.getItem('vmp.lyricTrans.v1')||'{}');
+        return { open:true, marker:window.__APP_LLM_MODAL, transOn:s.on===true,
+                 status:(document.getElementById('llm-status')?.textContent||'').length>0 };})()`, 4000);
+      check('S40 未配置密钥:点「译」弹设置窗而不是直接开开关',
+        noKey?.open === true && noKey.marker === '1' && noKey.transOn === false && noKey.status === true,
+        JSON.stringify(noKey));
+
+      // 关闭:✕ 与 Esc 都要能关
+      await ev("document.getElementById('llm-close').click()");
+      const closedByX = await poll2(`document.getElementById('llm-modal').classList.contains('open') === false && window.__APP_LLM_MODAL === '0'`, 3000);
+      await ev("document.getElementById('lyric-trans-btn').click()");
+      await poll2(`document.getElementById('llm-modal').classList.contains('open') === true`, 3000);
+      await ev(`(()=>{document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+        window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); return true;})()`);
+      const closedByEsc = await poll2(`document.getElementById('llm-modal').classList.contains('open') === false`, 3000);
+      check('S40 ✕ 与 Esc 都能关闭弹窗', closedByX === true && closedByEsc === true, JSON.stringify({ closedByX, closedByEsc }));
+
+      // 恢复真实 fetch 后读接口:只回掩码,绝不回明文
+      await ev("if (window.__realFetch) { window.fetch = window.__realFetch; delete window.__realFetch; } true");
+      const api = await ev(`(async()=>{const r=await fetch('/api/llm-key',{headers:{Accept:'application/json'}});
+        const d=await r.json();
+        return { ok:d.ok, hasConfigured: typeof d.configured === 'boolean',
+                 masked: typeof d.masked === 'string', src: d.source ?? null,
+                 leaksPlain: typeof d.key === 'string' && d.key.length > 0 };})()`);
+      check('S40 GET /api/llm-key 只回掩码状态,不回明文',
+        api?.ok === true && api.hasConfigured === true && api.masked === true && api.leaksPlain === false,
+        JSON.stringify(api));
+
+      await ev("localStorage.removeItem('vmp.lyricTrans.v1')");
     });
 
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)
