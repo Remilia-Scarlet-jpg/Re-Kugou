@@ -829,8 +829,9 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   color: rgba(255, 255, 255, .82);
   opacity: .9;
 }
-/* 「译」按钮:开启态点亮(与桌词锁定按钮同款薄荷底) */
+/* 「译」按钮:开启态点亮(与桌词锁定按钮同款薄荷底);失败态转琥珀色,点一下即重试 */
 #lyric-trans-btn.on { color: #fff; background: rgba(0, 245, 212, 0.30); }
+#lyric-trans-btn.err { color: #ffe2b8; background: rgba(244, 160, 80, 0.32); }
 .lyric-empty {
   text-align: center;
   color: var(--text-2);

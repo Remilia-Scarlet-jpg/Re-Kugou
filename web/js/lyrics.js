@@ -59,7 +59,18 @@ export function classifyText(s) {
   return 'latin';
 }
 
-/** 译文行紧跟在原文行之后:语言类别不同且时间差在 gapMax 秒内即视为译文,并入 line.trans */
+/** 制作署名行的英文写法:Produced by：Pdogg / Piano by：Hen / Guitar by: … */
+const CREDIT_RE = /^[A-Za-z][A-Za-z .()'/&+-]{0,30}?\sby\s*[:：]/i;
+function looksLikeCredit(body) {
+  return CREDIT_RE.test(body);
+}
+
+/**
+ * 译文行紧跟在原文行之后 → 并入 line.trans。
+ * ⚠️ 只认「中文行」当译文(酷狗译文一律简体中文):早期版本只要求「语言类别不同」,
+ * 结果把英文署名列当成了译文(实测 FAKE LOVE ⇒ "Produced by：Pdogg"),
+ * 再叠加「有一行译文就整首不翻」,表现为「点了译也不翻」。署名行一律不参与配对。
+ */
 export function pairTranslations(lines, gapMax = 8) {
   const out = [];
   for (let i = 0; i < lines.length; i++) {
@@ -67,7 +78,18 @@ export function pairTranslations(lines, gapMax = 8) {
     const nxt = lines[i + 1];
     if (nxt) {
       const gap = nxt.time - cur.time;
-      if (classifyText(cur.text) !== classifyText(nxt.text) && gap >= 0 && gap <= gapMax) {
+      const curCls = classifyText(cur.text);
+      const nxtCls = classifyText(nxt.text);
+      if (
+        curCls !== 'zh' &&
+        nxtCls === 'zh' &&
+        gap >= 0 &&
+        gap <= gapMax &&
+        !isMetaLine(cur.text) &&
+        !isMetaLine(nxt.text) &&
+        !looksLikeCredit(cur.text) &&
+        !looksLikeCredit(nxt.text)
+      ) {
         cur.trans = nxt.text;
         i++; // 译文行不再单独占一条时间轴
       }
@@ -77,9 +99,12 @@ export function pairTranslations(lines, gapMax = 8) {
   return out;
 }
 
-/** 元信息署名行(歌词文件常带时间标签,不过滤会堆在歌词区顶部):词/曲/编曲/演唱/制作等(中日) */
+/**
+ * 元信息署名行(歌词文件常带时间标签,不过滤会堆在歌词区顶部):
+ * 中文「词/曲/编曲…:」+ 英文「Produced by：」两类。
+ */
 const META_LINE_RE =
-  /^(?:词|曲|作词|作曲|词曲|编曲|编曲人|词曲作者|演唱|歌手|和声|和音|合唱|演奏|制作|制作人|企划|企劃|原作|歌詞|作詞|作曲者|編曲|歌手|訳詞|翻訳|字幕|音乐|音楽|ボーカル|ギター|ベース|ドラム|ピアノ|キーボード|ストリングス|ヴァイオリン|チェロ|ホルン|コーラス|他編成|編成)\s*[:：]/;
+  /^(?:(?:词|曲|作词|作曲|词曲|编曲|编曲人|词曲作者|演唱|歌手|和声|和音|合唱|演奏|制作|制作人|企划|企劃|原作|歌詞|作詞|作曲者|編曲|歌手|訳詞|翻訳|字幕|音乐|音楽|ボーカル|ギター|ベース|ドラム|ピアノ|キーボード|ストリングス|ヴァイオリン|チェロ|ホルン|コーラス|他編成|編成)\s*[:：]|[A-Za-z][A-Za-z .()'/&+-]{0,30}?\sby\s*[:：])/i;
 
 function isMetaLine(body) {
   return META_LINE_RE.test(body);
@@ -130,12 +155,16 @@ export class LyricsView {
     this.songHash = null; // 已加载歌词对应的曲目,避免旧请求覆盖
     this.static = false;  // 无时间轴歌词:只展示不跟随、不可 seek
     this.song = null;     // 当前曲目(「译」按钮切换后要重试翻译)
+    this.transError = ''; // 最近一次翻译失败原因(按钮据此显示重试态)
+    this._lastTransToast = '';
   }
 
   /** 切歌时加载;失败静默降级为「暂无歌词」 */
   async loadFor(song) {
     this.songHash = song?.hash || null;
     this.song = song || null;
+    this.transError = '';
+    this._lastTransToast = '';
     this.lines = [];
     this.currentIdx = -1;
     this.static = false;
@@ -170,35 +199,58 @@ export class LyricsView {
 
   /**
    * 接口没给译文时按需 AI 翻译(开关在歌词抽屉头的「译」按钮)。
-   * 只在「有外文行 / 还没有任何译文 / 开关打开」时才发请求;失败静默降级。
+   * 判据从「有任一行译文就跳过」改成「覆盖率」:酷狗偶尔给一行半截译文(甚至把署名配成译文),
+   * 旧的 some() 会让整首都不翻。现在只在 ≥60% 行已有译文时才认为接口自带双语;否则整首翻,只补空缺行。
    */
   async _maybeTranslate(song) {
     if (this.static || !this.lines.length) return;
-    if (this.lines.some((l) => l.trans)) return; // 接口自带双语,直接用
+    const total = this.lines.length;
+    const have = this.lines.filter((l) => l.trans).length;
+    if (have >= Math.max(2, Math.ceil(total * 0.6))) return; // 接口确实给了双语,不必再花钱
     if (!isTransOn()) return;
-    if (!needsTranslation(this.lines.map((l) => l.text))) return; // 中文歌不浪费额度
+    const need = this.lines.filter((l) => !l.trans).map((l) => l.text);
+    if (!needsTranslation(need)) return; // 中文歌不浪费额度
     const hash = song?.hash;
     const r = await translateLines(song, this.lines.map((l) => l.text));
     if (this.songHash !== hash) return; // 期间切歌
     if (!r?.ok) {
-      if (r?.reason === 'nokey') this.toast?.('未配置翻译密钥,见「使用说明 · AI 歌词翻译」');
+      this._transFail(r);
       return;
     }
+    let filled = 0;
     this.lines.forEach((l, i) => {
-      if (r.translations[i]) {
+      if (!l.trans && r.translations[i]) {
         l.trans = r.translations[i];
         l.aiTrans = true; // 标记来源:关掉开关时只清 AI 加的,不清接口自带的
+        filled++;
       }
     });
-    this._renderLines();
+    this.transError = '';
+    if (filled) this._renderLines();
   }
 
-  /** 「译」按钮打开后重试;已有译文直接重渲染 */
+  /** 翻译失败要有可读反馈(旧版只提示 nokey,密钥失效/超时/网络错误全是静默的) */
+  _transFail(r) {
+    const map = {
+      nokey: '未配置翻译密钥 —— 点「译」打开设置窗',
+      upstream: '翻译服务报错(密钥失效或额度用尽)',
+      timeout: '翻译超时,稍后再点一次「译」',
+      network: '连不上本地服务,确认 RE:KG 服务在跑',
+      empty: '翻译结果为空,换个模型试试',
+      error: '翻译失败',
+    };
+    const msg = map[r?.reason] || '翻译失败';
+    this.transError = msg;
+    if (this._lastTransToast === msg) return; // 同一原因不重复刷屏
+    this._lastTransToast = msg;
+    this.toast?.(msg);
+  }
+
+  /** 「译」按钮打开后重试:已有译文先渲染出来,缺的行再补(不再因「有一行」就整体跳过) */
   async retranslate() {
-    if (this.lines.some((l) => l.trans)) {
-      this._renderLines();
-      return;
-    }
+    this.transError = '';
+    this._lastTransToast = '';
+    if (this.lines.some((l) => l.trans)) this._renderLines();
     await this._maybeTranslate(this.song);
   }
 

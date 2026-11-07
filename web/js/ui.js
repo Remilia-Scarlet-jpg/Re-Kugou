@@ -1494,7 +1494,12 @@ export function initUI() {
     if (!transBtn) return;
     const on = isTransOn();
     transBtn.classList.toggle('on', on);
-    transBtn.title = on ? 'AI 译文:开(点击关闭)' : 'AI 译文:关(点击开启)';
+    transBtn.classList.toggle('err', on && !!lyricsView.transError); // 上次翻译失败的提示态
+    transBtn.title = on
+      ? lyricsView.transError
+        ? `AI 译文:失败(${lyricsView.transError}),点击重试`
+        : 'AI 译文:开(点击关闭)'
+      : 'AI 译文:关(点击开启)';
   }
 
   function renderLlmStatus() {
@@ -1585,13 +1590,25 @@ export function initUI() {
   if (transBtn) {
     syncTransBtn();
     transBtn.addEventListener('click', async () => {
+      // 上一次翻译失败 → 这一下当作「重试」,而不是把开关关掉
+      if (lyricsView.transError) {
+        setTransOn(true);
+        syncTransBtn();
+        await lyricsView.retranslate();
+        syncTransBtn();
+        return;
+      }
       const st = await refreshLlmStatus();
       if (!st?.configured) return openLlmModal(); // 没密钥 → 直接给设置位置
       const on = !isTransOn();
       setTransOn(on);
       syncTransBtn();
-      if (on) lyricsView.retranslate();
-      else lyricsView.clearTrans();
+      if (on) {
+        await lyricsView.retranslate();
+        syncTransBtn();
+      } else {
+        lyricsView.clearTrans();
+      }
     });
   }
   // 「我的酷狗」页里的「AI 翻译」入口(页面会重渲染,故用事件委托)

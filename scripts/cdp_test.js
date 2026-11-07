@@ -2062,6 +2062,44 @@ async function newTarget() {
       await ev("localStorage.removeItem('vmp.lyricTrans.v1')");
     });
 
+    // S41 「点了译也不翻」回归(2026-11-07 先生反馈):酷狗的英文署名行被误配成译文,
+    // 再叠加「有任一行译文就整首跳过」,导致韩文/英文歌整首不翻。三处一起钉住。
+    await step('S41', async () => {
+      const pair = await ev(`(async()=>{
+        const { parseLRC } = await import('/js/lyrics.js');
+        const real = parseLRC(['[00:01.00]There aint no gold','[00:03.00]并没有宝藏','[00:05.00]In this river','[00:07.00]在这条河里'].join('\\n'));
+        const kr = parseLRC(['[00:00.00]FAKE LOVE - BTS (防弹少年团)','[00:00.20]Produced by：Pdogg','[00:00.40]Piano by：Hen','[00:02.00]날카로운 말도','[00:04.00]모두 다 삼켜버려'].join('\\n'));
+        return { realLines: real.length, realTrans: real.filter(l=>l.trans).length,
+                 krTrans: kr.filter(l=>l.trans).length,
+                 creditLeft: kr.some(l=>/by\\s*[:：]/i.test(l.text)),
+                 krText: kr.map(l=>l.text) };})()`);
+      check('S41 真双语仍配对(英→中 4 行 → 2 行且带译文)',
+        pair?.realLines === 2 && pair.realTrans === 2, JSON.stringify(pair));
+      check('S41 英文署名行不再被误配成译文,并从歌词区过滤',
+        pair?.krTrans === 0 && pair.creditLeft === false, JSON.stringify(pair));
+
+      // 覆盖率判据:只剩 1 行残留译文时,不能因此整首跳过,要把空缺补齐
+      const fill = await ev(`(async()=>{
+        const { LyricsView } = await import('/js/lyrics.js');
+        const { setTransOn } = await import('/js/translate.js');
+        setTransOn(true);
+        const real = window.fetch;
+        window.fetch = async (u, o) => String(u).includes('/api/translate')
+          ? { json: async () => ({ ok:true, translations:['甲','乙','丙'] }) }
+          : real(u, o);
+        const v = new LyricsView({ title: document.createElement('div'), body: document.createElement('div'), onSeek(){}, toast(){} });
+        v.songHash = 's41'; v.song = { hash: 's41', name:'t', artists:'a' };
+        v.lines = [ { time:0, text:'Produced by：Pdogg', trans:'垃圾译文' },
+                    { time:2, text:'날카로운 말도' }, { time:4, text:'모두 다 삼켜버려' } ];
+        let r;
+        try { r = await v._maybeTranslate(v.song); } finally { window.fetch = real; }
+        const n = v.lines.filter(l=>l.trans).length;
+        localStorage.removeItem('vmp.lyricTrans.v1');
+        return { trans: n, kept: v.lines[0].trans, err: v.transError || '' };})()`);
+      check('S41 只剩 1 行译文时仍会补译(覆盖率判据,不再 some() 一刀切)',
+        fill?.trans === 3 && fill.kept === '垃圾译文' && fill.err === '', JSON.stringify(fill));
+    });
+
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)
     const errs = [...cdp.exceptions, ...cdp.consoleErrors].filter((e) => !isEnvNoise(e));
     check('S9 全程无未捕获异常/控制台报错', errs.length === 0, errs.slice(0, 3).join(' | '));
