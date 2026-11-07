@@ -123,24 +123,89 @@ export async function getAlbumSongs(albumid) {
 
 // ---------- 歌曲 ----------
 
+/** 归一化:全角转半角、小写、去空白与标点 —— 相关性打分用 */
+function normKey(s) {
+  return String(s || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s"'“”‘’()[\]【】<>《》,、。.!！?？:：;；\-—_/\\|·]/g, '');
+}
+
+/** 词曲检索(v1/search/lyric)条目 → Song */
+function mapLyricChannel(p) {
+  return normSong({
+    hash: p.FileHash || p.SQHash || '',
+    hash320: p['320Hash'] || p.trans_param?.ogg_320_hash || '',
+    name: p.SongName || '未知歌曲',
+    artists: p.SingerName || '未知歌手',
+    img: p.Image || '',
+    duration: p.TimeLength || undefined, // 秒
+  });
+}
+
+/** 歌名检索(v3/search/song)条目 → Song:字段与词曲通道不同(OriSongName / FileName="歌手 - 歌名" / Duration 秒) */
+function mapSongChannel(p) {
+  const file = String(p.FileName || '');
+  const dash = file.indexOf(' - ');
+  return normSong({
+    hash: p.FileHash || '',
+    hash320: p['320Hash'] || p.trans_param?.ogg_320_hash || '',
+    name: p.OriSongName || (dash > 0 ? file.slice(dash + 3) : file) || '未知歌曲',
+    artists: p.SingerName || '未知歌手',
+    img: p.Image || p.AlbumImage || '',
+    duration: p.Duration || undefined, // 秒
+  });
+}
+
+/**
+ * 按查询词重排:精确歌名 > 歌名前缀 > 歌名包含 > 歌手命中 > 分词全覆盖 > 部分命中。
+ * 上游的词曲检索是按**歌词文字**排序的(实测搜 "the story unfolds" 时目标歌排第 5),
+ * 所以拿到结果后自己再排一次;不命中的保留在后面不丢弃,同分时短标题优先、再按原顺序(稳定)。
+ */
+export function rankByRelevance(songs, keywords) {
+  const q = normKey(keywords);
+  if (!q) return songs;
+  const tokens = String(keywords || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .map(normKey)
+    .filter(Boolean);
+  const scored = songs.map((s, i) => {
+    const name = normKey(s.name);
+    const artists = normKey(s.artists);
+    let score = 0;
+    if (name === q) score = 1000;
+    else if (name.startsWith(q)) score = 820;
+    else if (name.includes(q)) score = 640;
+    else if (artists.includes(q)) score = 520;
+    else if (tokens.length > 1 && tokens.every((t) => name.includes(t) || artists.includes(t))) score = 360;
+    else if (tokens.some((t) => name.includes(t) || artists.includes(t))) score = 140;
+    return { s, i, score, len: name.length };
+  });
+  scored.sort((a, b) => b.score - a.score || (a.score > 0 ? a.len - b.len : 0) || a.i - b.i);
+  return scored.map((x) => x.s);
+}
+
 /**
  * 歌曲搜索 → Song[]。
- * lite 模式 type=song 走 /v3 通道报 152(Parameter Error,实测);type=lyric(词曲检索)
- * 反而返回完整可播放歌曲元数据:FileHash(128k)/320Hash/trans_param.ogg_320_hash/
- * TimeLength(秒)/Image({size} 占位,由 fixImgUrl 替换)/SingerName。
+ * **歌名检索优先**(`/search?type=song`,v3 通道):相关性正确(实测目标歌第 1)。
+ * lite 模式该通道曾在 2026-08 报 152,2026-11-07 实测已恢复可用;为防上游再变,
+ * 空结果/抛错时回退到 `type=lyric`(词曲检索,总能拿到可播放元数据)。
+ * 两条通道的字段名不同,分别由 mapSongChannel / mapLyricChannel 归一;最后统一按相关度重排。
  */
 export async function searchSongs(keywords) {
-  const d = await getJson('/search', { keywords, type: 'lyric', pagesize: 24 });
-  return (d?.data?.lists || []).map((p) =>
-    normSong({
-      hash: p.FileHash || p.SQHash || '',
-      hash320: p['320Hash'] || p.trans_param?.ogg_320_hash || '',
-      name: p.SongName || '未知歌曲',
-      artists: p.SingerName || '未知歌手',
-      img: p.Image || '',
-      duration: p.TimeLength || undefined,
-    })
-  );
+  let songs = [];
+  try {
+    const d = await getJson('/search', { keywords, type: 'song', pagesize: 30 });
+    songs = (d?.data?.lists || []).map(mapSongChannel).filter((s) => s.hash);
+  } catch {
+    songs = [];
+  }
+  if (!songs.length) {
+    const d = await getJson('/search', { keywords, type: 'lyric', pagesize: 30 });
+    songs = (d?.data?.lists || []).map(mapLyricChannel).filter((s) => s.hash);
+  }
+  return rankByRelevance(songs, keywords);
 }
 
 // ---------- 歌单 ----------

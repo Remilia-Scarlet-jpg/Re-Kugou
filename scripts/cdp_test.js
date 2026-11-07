@@ -2100,6 +2100,32 @@ async function newTarget() {
         fill?.trans === 3 && fill.kept === '垃圾译文' && fill.err === '', JSON.stringify(fill));
     });
 
+    // S42 搜索相关性(2026-11-07 先生反馈「不按最相关排」):歌名检索通道优先 + 客户端重排。
+    // 纯函数级,不联网:只验打分与排序规则,真实上行次数由人工抽查。
+    await step('S42', async () => {
+      const r = await ev(`(async()=>{
+        const { rankByRelevance } = await import('/js/api.js');
+        const base = [
+          { hash:'a', name:'Window', artists:'Galdive' },
+          { hash:'b', name:'I GOT YOU', artists:'TWICE' },
+          { hash:'c', name:'The Story Unfolds', artists:'Sdorica' },
+          { hash:'d', name:'the story unfolds (Live)', artists:'X' },
+          { hash:'e', name:'Story', artists:'the unfolds band' },
+        ];
+        const s1 = rankByRelevance(base, 'the story unfolds').map(s=>s.hash);
+        // 全角/空格/大小写的等价性
+        const s2 = rankByRelevance([{hash:'x',name:'告白气球',artists:'周杰伦'},{hash:'y',name:'告白',artists:'某人'}], '　告白气球 ').map(s=>s.hash);
+        // 歌手命中
+        const s3 = rankByRelevance([{hash:'p',name:'晴天',artists:'周杰伦'},{hash:'q',name:'其他歌',artists:'别人'}], '周杰伦').map(s=>s.hash);
+        // 不命中的不丢
+        const s4 = rankByRelevance(base, 'zzzz-not-exist').length;
+        return { s1, s2, s3, s4, n: base.length };})()`);
+      check('S42 精确歌名排第一(前缀/全等优先于无关项)',
+        Array.isArray(r?.s1) && (r.s1[0] === 'c' || r.s1[0] === 'd') && r.s1.indexOf('a') > 0, JSON.stringify(r?.s1));
+      check('S42 全角空格与大小写不影响命中', JSON.stringify(r?.s2) === '["x","y"]', JSON.stringify(r?.s2));
+      check('S42 歌手命中可召回 / 完全不命中时不丢结果', r?.s3?.[0] === 'p' && r?.s4 === 5, JSON.stringify({ s3: r?.s3, s4: r?.s4 }));
+    });
+
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)
     const errs = [...cdp.exceptions, ...cdp.consoleErrors].filter((e) => !isEnvNoise(e));
     check('S9 全程无未捕获异常/控制台报错', errs.length === 0, errs.slice(0, 3).join(' | '));
