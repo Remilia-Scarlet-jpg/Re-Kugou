@@ -577,7 +577,7 @@ async function handleKeyApi(req, res) {
 }
 const LLM_MODEL = process.env.REKG_LLM_MODEL || 'deepseek-chat';
 const LLM_MOCK = process.env.REKG_LLM_MOCK === '1';
-const LLM_TIMEOUT = Number(process.env.REKG_LLM_TIMEOUT || 45000);
+const LLM_TIMEOUT = Number(process.env.REKG_LLM_TIMEOUT || 90000); // 整首一次翻,长歌词可能 40s+,给足
 const TRANSLATE_MAX_LINES = 160;
 
 /** 「先通读全篇再逐句翻」= 先生要的效果:整首歌词一次性交给模型,让它带着全局语境落每一行 */
@@ -671,7 +671,8 @@ async function proxyTranslate(req, res) {
     });
     if (!r.ok) {
       console.log(`[translate] upstream ${r.status}`); // 只打状态码,不打 key/正文
-      return sendJson(res, 200, { ok: false, reason: 'upstream', error: `翻译服务返回 ${r.status}` });
+      // 把状态码回给前端:401=密钥无效/过期,402=余额不足,429=限流,5xx=服务端问题
+      return sendJson(res, 200, { ok: false, reason: 'upstream', status: r.status, error: `翻译服务返回 ${r.status}` });
     }
     const data = await r.json();
     const translations = parseTranslations(data?.choices?.[0]?.message?.content, lines.length);

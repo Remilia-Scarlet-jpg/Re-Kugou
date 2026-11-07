@@ -231,15 +231,23 @@ export class LyricsView {
 
   /** 翻译失败要有可读反馈(旧版只提示 nokey,密钥失效/超时/网络错误全是静默的) */
   _transFail(r) {
+    const code = r?.status ? ` ${r.status}` : '';
     const map = {
       nokey: '未配置翻译密钥 —— 点「译」打开设置窗',
-      upstream: '翻译服务报错(密钥失效或额度用尽)',
-      timeout: '翻译超时,稍后再点一次「译」',
+      upstream:
+        r?.status === 401
+          ? '密钥无效或已过期(401),去设置窗换一个'
+          : r?.status === 402
+            ? '账户余额不足(402)'
+            : r?.status === 429
+              ? '请求太频繁被限流(429),等几秒再点「译」'
+              : `翻译服务报错${code}`,
+      timeout: '翻译超时(整首太长或网络慢),再点一次「译」重试',
       network: '连不上本地服务,确认 RE:KG 服务在跑',
       empty: '翻译结果为空,换个模型试试',
-      error: '翻译失败',
+      error: `翻译失败${code}`,
     };
-    const msg = map[r?.reason] || '翻译失败';
+    const msg = map[r?.reason] || `翻译失败${code}`;
     this.transError = msg;
     if (this._lastTransToast === msg) return; // 同一原因不重复刷屏
     this._lastTransToast = msg;
