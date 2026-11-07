@@ -52,6 +52,9 @@ bug.md
 api/docs/
 api/interface.d.ts
 
+#-----------Android暂不支持----------
+android/
+
 # ---------- Android 本地工具链(Android SDK 与 cmdline-tools,150MB+ 且含许可文件,绝不入库) ----------
 /tools/
 
