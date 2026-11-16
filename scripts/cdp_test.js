@@ -2143,6 +2143,57 @@ async function newTarget() {
       check('S42 歌手命中可召回 / 完全不命中时不丢结果', r?.s3?.[0] === 'p' && r?.s4 === 5, JSON.stringify({ s3: r?.s3, s4: r?.s4 }));
     });
 
+    // S43 面板左右拉伸(2026-11-16 先生要求):歌词页与抽屉页都能拖左边缘改宽,
+    // 上限 = 默认宽(左边界不再往左),下限 = 默认的一半;拖拽时实时回流,松手落盘。
+    await step('S43', async () => {
+      const zones = await ev(`(()=>{const pick=(id)=>{const p=document.getElementById(id);
+        if(!p) return null; const st=getComputedStyle(p,'::before');
+        return {cursor:st.cursor, w:st.width}};
+        return {lyric:pick('lyric-drawer'), drawer:pick('right-drawer')};})()`);
+      check('S43 两个面板都有左边缘拖拽热区(col-resize)',
+        zones?.lyric?.cursor === 'col-resize' && zones?.drawer?.cursor === 'col-resize', JSON.stringify(zones));
+
+      const drag = await ev(`(async()=>{
+        const panel=document.getElementById('lyric-drawer');
+        const closeLater = !panel.classList.contains('open');
+        if (closeLater) { document.getElementById('lyric-toggle').click(); await new Promise(r=>setTimeout(r,420)); }
+        // 统一从默认宽度起测,避免上次拖拽的残留宽度影响期望值
+        panel.style.setProperty('--panel-w','380px');
+        localStorage.removeItem('vmp.panelWidths.v1');
+        await new Promise(r=>requestAnimationFrame(()=>r()));
+        const r0=panel.getBoundingClientRect();
+        const y=Math.round(r0.top+60);
+        const before=Math.round(r0.width);
+        const down=(x)=>panel.dispatchEvent(new PointerEvent('pointerdown',{clientX:x,clientY:y,button:0,bubbles:true}));
+        const move=(x)=>window.dispatchEvent(new PointerEvent('pointermove',{clientX:x,clientY:y,bubbles:true}));
+        const up=(x)=>window.dispatchEvent(new PointerEvent('pointerup',{clientX:x,clientY:y,bubbles:true}));
+        down(r0.left+2);
+        move(r0.left-120);                        // 往左拖:应被上限挡住
+        const atMax=Math.round(panel.getBoundingClientRect().width);
+        move(r0.left+102);                        // 往右拖 100px:应实时收窄
+        const narrowed=Math.round(panel.getBoundingClientRect().width);
+        const liveCls=panel.classList.contains('resizing');
+        move(r0.left+1200);                       // 拖过头:应钳在下限(默认的一半)
+        const atMin=Math.round(panel.getBoundingClientRect().width);
+        up(r0.left+1200);
+        const clsAfter=panel.classList.contains('resizing') || document.body.classList.contains('panel-resizing');
+        const stored=JSON.parse(localStorage.getItem('vmp.panelWidths.v1')||'{}');
+        const marker=window.__APP_PANEL_LYRIC;
+        // 收尾:恢复默认宽并清掉本次落盘,免得影响后续断言
+        panel.style.setProperty('--panel-w','380px');
+        localStorage.removeItem('vmp.panelWidths.v1');
+        window.__APP_PANEL_LYRIC='380';
+        if (closeLater) { document.getElementById('lyric-close').click(); await new Promise(r=>setTimeout(r,320)); }
+        return {before,atMax,narrowed,atMin,liveCls,clsAfter,stored:stored.lyric,marker};
+      })()`);
+      check('S43 拖左边缘:往左不增宽、往右实时收窄、拖过头钳在默认的一半',
+        drag?.atMax === drag?.before && drag.narrowed === drag.before - 100 && drag.atMin === Math.round(drag.before / 2) && drag.liveCls === true,
+        JSON.stringify(drag));
+      check('S43 松手落盘 + 拖拽态清理干净',
+        drag?.stored === Math.round(drag.before / 2) && drag.marker === String(Math.round(drag.before / 2)) && drag.clsAfter === false,
+        JSON.stringify(drag));
+    });
+
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)
     const errs = [...cdp.exceptions, ...cdp.consoleErrors].filter((e) => !isEnvNoise(e));
     check('S9 全程无未捕获异常/控制台报错', errs.length === 0, errs.slice(0, 3).join(' | '));

@@ -215,7 +215,7 @@ img { -webkit-user-drag: none; }
   top: 20px;
   right: 12px;
   bottom: 100px; /* 底边停在播放条上方(12px 距底 + 76px 高 + 12px 余量),先生 2026-09-12 定调 */
-  width: min(420px, 92vw);
+  width: min(var(--panel-w, 420px), 92vw); /* --panel-w 由左边缘拖拽改写(默认 420px,可收窄到 210px) */
   background: linear-gradient(112deg, rgba(62, 66, 70, 0.24), rgba(18, 22, 26, 0.20) 48%, rgba(8, 12, 14, 0.24));
   backdrop-filter: blur(14px) saturate(1.25);
   -webkit-backdrop-filter: blur(14px) saturate(1.25);
@@ -742,7 +742,7 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   top: 12px;
   right: 12px;
   bottom: 100px;
-  width: 380px;
+  width: var(--panel-w, 380px); /* 左边缘拖拽可收窄到一半(190px);上限 = 默认 380px */
   max-width: 90vw;
   background: linear-gradient(112deg, rgba(62, 66, 70, 0.20), rgba(18, 22, 26, 0.16) 48%, rgba(8, 12, 14, 0.20));
   backdrop-filter: blur(12px) saturate(1.3);
@@ -1066,7 +1066,7 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   #volume { width: 60px; }
   .volume { width: auto; }
   /* 窄视口:歌词抽屉压回可用宽度,底部避让播放条(76px 高 + 12px 距底 + 余量) */
-  .lyric-drawer { width: min(380px, calc(100vw - 24px)); bottom: 108px; }
+  .lyric-drawer { width: min(var(--panel-w, 380px), calc(100vw - 24px)); bottom: 108px; }
   .right-drawer { bottom: 108px; }
 }
 
@@ -1269,6 +1269,28 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
 }
 .win-btn:hover { background: rgba(255, 255, 255, .10); color: #fff; }
 #win-close:hover { background: rgba(255, 107, 157, .28); color: #fff; }
+
+/* ============ 面板左右拉伸(拖拽左边缘) ============ */
+/* 2026-11-16 先生要求:抽屉页与歌词页都能拖左边缘改宽度 ——
+   左边界向左拖不变(宽度已是默认上限),向右拖可收窄到默认的一半;拖拽时内容实时回流(CSS 变量逐 move 重算)。
+   热区用 7px 伪元素,不占 DOM、不影响既有 id/class 绑定;面板关闭时整体 translateX 出屏,热区自然点不到。 */
+.lyric-drawer::before,
+.right-drawer::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 3;
+}
+/* 拖拽中:去掉过渡、锁住指针形态与文字选择,避免松手瞬间的抖动与误选中 */
+.lyric-drawer.resizing,
+.right-drawer.resizing { transition: none; }
+body.panel-resizing { cursor: col-resize; user-select: none; }
+body.panel-resizing * { cursor: col-resize !important; }
 
 /* ============ 纯净模式(隐藏界面) ============ */
 /* 由播放条右端「隐藏」按钮进入、右下角「显示界面」或 Esc 退出:收起播放栏 / 右抽屉 / 边缘标签 /

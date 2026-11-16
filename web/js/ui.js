@@ -90,7 +90,8 @@ export function toast(msg, warn = false) {
 }
 
 // ---------- 纯净模式(隐藏界面) ----------
-/** 隐藏播放栏 / 抽屉 / 歌词抽屉 / Electron 标题栏,只留壁纸与粒子。
+/** 隐藏播放栏 / 右抽屉 / 边缘标签 / Electron 标题栏,只留壁纸与粒子。
+ *  ⚠️ 歌词抽屉不在隐藏清单里(2026-11-16):已经打开的歌词页保留显示。
  *  恢复入口必须始终可达:右下角「显示界面」胶囊(平时透明不可点)+ Esc —— 少一个就会把人关在门外。 */
 function setUiHidden(next) {
   const on = !!next;
@@ -99,6 +100,81 @@ function setUiHidden(next) {
   if (on) toast('已进入纯净模式:按 Esc 或点右下角「显示界面」恢复');
 }
 window.__APP_UI_HIDDEN = '0'; // 模块加载即置初值(测试要能在未点击前就读到)
+
+// ---------- 面板左右拉伸(歌词抽屉 / 右侧抽屉) ----------
+/** 宽度上下限:上限 = 当前默认宽(左边界不能再往左),下限 = 默认的一半(先生 2026-11-16 定调) */
+const PANEL_LIMITS = { lyric: { def: 380, min: 190 }, drawer: { def: 420, min: 210 } };
+const PANEL_W_KEY = 'vmp.panelWidths.v1';
+
+function loadPanelWidths() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PANEL_W_KEY) || '{}');
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch {
+    return {};
+  }
+}
+const panelWidths = loadPanelWidths();
+
+function panelClamp(name, w) {
+  const lim = PANEL_LIMITS[name];
+  const n = Number(w);
+  if (!Number.isFinite(n)) return lim.def;
+  return Math.round(Math.min(lim.def, Math.max(lim.min, n)));
+}
+
+/** 把宽度写进面板的 CSS 变量 —— 逐 move 调用即「内容实时回流」;顺带暴露测试标记 */
+function applyPanelWidth(panel, name) {
+  if (!panel) return;
+  const w = panelClamp(name, panelWidths[name] ?? PANEL_LIMITS[name].def);
+  panelWidths[name] = w;
+  panel.style.setProperty('--panel-w', `${w}px`);
+  window[name === 'lyric' ? '__APP_PANEL_LYRIC' : '__APP_PANEL_DRAWER'] = String(w);
+}
+
+/** 拖左边缘改宽:move/up 挂 window(指针移出面板也不断),不用 pointer capture —— 合成事件同样好使 */
+function attachPanelResize(panel, name) {
+  if (!panel) return;
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
+  panel.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const rect = panel.getBoundingClientRect();
+    if (e.clientX - rect.left > 7) return; // 只认左边缘 7px 热区
+    dragging = true;
+    startX = e.clientX;
+    startW = rect.width;
+    panel.classList.add('resizing');
+    document.body.classList.add('panel-resizing');
+    e.preventDefault();
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    panelWidths[name] = panelClamp(name, startW - (e.clientX - startX));
+    applyPanelWidth(panel, name);
+  });
+  const finish = () => {
+    if (!dragging) return;
+    dragging = false;
+    panel.classList.remove('resizing');
+    document.body.classList.remove('panel-resizing');
+    try {
+      localStorage.setItem(PANEL_W_KEY, JSON.stringify(panelWidths));
+    } catch {
+      /* 配额满就只在本次会话生效 */
+    }
+  };
+  window.addEventListener('pointerup', finish);
+  window.addEventListener('pointercancel', finish);
+}
+
+function initPanelResize() {
+  applyPanelWidth(el.lyricDrawer, 'lyric');
+  applyPanelWidth(el.rightDrawer, 'drawer');
+  attachPanelResize(el.lyricDrawer, 'lyric');
+  attachPanelResize(el.rightDrawer, 'drawer');
+}
 
 // ---------- 通用片段 ----------
 // CSP(script-src 'self')下禁用内联 onerror 属性,封面失败回退改插入后绑定事件
@@ -1431,6 +1507,7 @@ export function initUI() {
   // 纯净模式:播放条右端「隐藏」进,右下角「显示界面」或 Esc 出(Esc 优先退出纯净模式)
   $('ui-hide-btn')?.addEventListener('click', () => setUiHidden(true));
   $('ui-show-btn')?.addEventListener('click', () => setUiHidden(false));
+  initPanelResize(); // 面板左边缘拖拽改宽(宽度已落盘则按记录恢复)
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (el.llmModal && el.llmModal.classList.contains('open')) return closeLlmModal();
