@@ -1846,6 +1846,23 @@ async function newTarget() {
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
       check('S35 Esc:也能退出纯净模式(两条退路都要好使)', await poll(
         "!document.body.classList.contains('ui-hidden') && window.__APP_UI_HIDDEN === '0'", 3000));
+
+      // 2026-11-16 先生要求:纯净模式只收界面控件,已经打开的歌词页保留显示(不跟随收起)
+      await ev("document.getElementById('lyric-toggle').click()");
+      await poll("document.getElementById('lyric-drawer').classList.contains('open')", 3000);
+      await ev("document.getElementById('ui-hide-btn').click()");
+      const keepLyric = await poll(`(()=>{
+        const d = document.getElementById('lyric-drawer'); const st = getComputedStyle(d);
+        return document.body.classList.contains('ui-hidden')
+          && d.classList.contains('open')
+          && parseFloat(st.opacity) > 0.5
+          && st.pointerEvents !== 'none';
+      })()`, 3000);
+      check('S35 纯净模式下已打开的歌词页保留(不跟随收起)', keepLyric === true, String(keepLyric));
+      await ev("document.getElementById('ui-show-btn').click()");
+      await poll("!document.body.classList.contains('ui-hidden')", 2000);
+      await ev("document.getElementById('lyric-close').click()");
+      await poll("!document.getElementById('lyric-drawer').classList.contains('open')", 2000);
     });
 
     // S36 手机视口布局(390x844 · Android 移植):桌面三列定宽的播放条在手机上必须改成三行堆叠,
