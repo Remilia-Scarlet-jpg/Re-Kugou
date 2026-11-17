@@ -113,10 +113,13 @@ html[data-electron] #dl-root { background: transparent; }
    命中判定仍在 Electron 主进程(它轮询光标,不依赖 mousemove 转发),`data-hit=1` 即「现在可点」。
    浏览器 popup 没有穿透能力 → `data-hit` 恒为 1,🔒 常显常可点。
    原生拖拽区在锁定时取消,锁上就不能被拖动。 */
-html[data-locked] #dl-drag { -webkit-app-region: no-drag; cursor: default; }
-html[data-locked] .dl-ctrls > :not(#dl-lock) { display: none; }
-html[data-locked] #dl-lock { opacity: .55; transition: opacity .18s ease; }
-html[data-locked][data-hit="1"] #dl-lock { opacity: .95; }
+/* ⚠️ 必须写 data-locked="1":view.js 解锁时是 `dataset.locked = '0'`(不是删属性),
+   而 `html[data-locked]` 是「属性存在即匹配」—— 写成单属性选择器会让解锁后控件永远回不来
+   (2026-11-17 先生实测「解锁了功能呢」即此 bug;旧版 opacity 淡化规则同样一直生效,只是不明显)。 */
+html[data-locked="1"] #dl-drag { -webkit-app-region: no-drag; cursor: default; }
+html[data-locked="1"] .dl-ctrls > :not(#dl-lock) { display: none; }
+html[data-locked="1"] #dl-lock { opacity: .55; transition: opacity .18s ease; }
+html[data-locked="1"][data-hit="1"] #dl-lock { opacity: .95; }
 /* Electron 原生窗口拖拽:手柄走 app-region(与系统边缘 resize 互斥,拖动不误触放大);
    手柄内的控件(A−/A+/滑杆/✕)恢复可点(no-drag)。浏览器模式忽略(app-region 无效)。 */
 html[data-electron] #dl-drag { -webkit-app-region: drag; }
