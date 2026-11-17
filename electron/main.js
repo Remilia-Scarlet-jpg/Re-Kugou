@@ -229,14 +229,15 @@ ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minim
 // 为什么不交给渲染进程:setIgnoreMouseEvents(true,{forward:true}) 的 mousemove 转发在
 // Windows + 透明无边框窗上实测不可靠(先生反馈「锁上后小窗的 🔒 点不到,只能回主窗解锁」)。
 // 主进程用 screen.getCursorScreenPoint() 自己算,完全不依赖事件转发。
-// 规则:光标在窗内 → 记录移动时间;命中带(顶部控制条)内 或 2s 内动过 → 可点,否则整窗穿透。
-const DL_HOT_H = 44; // 顶部控制条命中带高度(DIP;含 A−/A+/透明度/🔒/✕ 那一行)
-const DL_HIT_MS = 2000; // 窗内动过鼠标后的临时可点窗口
+// 规则:光标不在窗内 → 整窗穿透;**只有落在右上角控件区(顶部 44px × 右侧 240px)才临时取消穿透**,让 🔒 可点。
+// ⚠️ 2026-11-17 先生反馈「锁定后点不到桌词后面的地方」——旧规则是「窗内 2 秒内动过鼠标也可点」,
+// 但点击必然伴随鼠标移动,于是鼠标一进歌词区域就永远"可点",歌词区等于完全挡住桌面,锁定形同虚设。
+// 现在彻底去掉时间宽限,只认控件区矩形:歌词本体的每一寸都立即穿透。
+const DL_HOT_H = 44; // 控件区高度(DIP;含 A−/A+/透明度/🔒/✕ 那一行)
+const DL_HOT_W = 260; // 控件区宽度(DIP,贴窗口右边缘;五个控件约 224 + 右内边距 20,留余量防边缘漏点)
 let dlLocked = false;
 let dlHitTimer = null;
-let dlLastPt = null;
-let dlLastMoveAt = 0;
-let dlIgnoring = null; // 已下发的 ignore 值(去抖,避免每 100ms 调一次 API)
+let dlIgnoring = null; // 已下发的 ignore 值(去抖,避免每 60ms 调一次 API)
 
 function applyDlIgnore(next) {
   if (!lyricsWindow || lyricsWindow.isDestroyed()) return;
@@ -253,29 +254,18 @@ function tickDlHit() {
   const pt = screen.getCursorScreenPoint();
   const b = lyricsWindow.getBounds();
   const inside = pt.x >= b.x && pt.x <= b.x + b.width && pt.y >= b.y && pt.y <= b.y + b.height;
-  if (!inside) {
-    // 光标不在窗内:立刻恢复穿透(不因为「别处动过鼠标」而挡桌面点击)
-    dlLastPt = null;
-    dlLastMoveAt = 0;
-    return applyDlIgnore(true);
-  }
-  if (!dlLastPt || pt.x !== dlLastPt.x || pt.y !== dlLastPt.y) {
-    dlLastMoveAt = Date.now();
-    dlLastPt = pt;
-  }
-  const inHot = pt.y - b.y <= DL_HOT_H;
-  applyDlIgnore(!(inHot || Date.now() - dlLastMoveAt < DL_HIT_MS));
+  if (!inside) return applyDlIgnore(true); // 光标不在窗内:整窗穿透
+  const inControls = pt.y - b.y <= DL_HOT_H && pt.x >= b.x + b.width - DL_HOT_W;
+  applyDlIgnore(!inControls);
 }
 
 function startDlHitPoll() {
-  // 60ms 一次:GetCursorPos 极廉价,而间隔过长会出现「刚移进控制条就点」落空(状态还没翻转)
+  // 60ms 一次:GetCursorPos 极廉价,而间隔过长会出现「刚移进控件区就点」落空(状态还没翻转)
   if (!dlHitTimer) dlHitTimer = setInterval(tickDlHit, 60);
   tickDlHit();
 }
 function stopDlHitPoll() {
   if (dlHitTimer) { clearInterval(dlHitTimer); dlHitTimer = null; }
-  dlLastPt = null;
-  dlLastMoveAt = 0;
   dlIgnoring = null;
 }
 
