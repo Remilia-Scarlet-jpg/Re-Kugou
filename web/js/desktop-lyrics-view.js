@@ -16,11 +16,9 @@ const SELF_CLOSE_MS = 7000;
 const el = {
   root: document.getElementById('dl-root'),
   drag: document.getElementById('dl-drag'),
-  title: document.getElementById('dl-title'),
   current: document.getElementById('dl-current'),
   trans: document.getElementById('dl-trans'),
   next: document.getElementById('dl-next'),
-  meta: document.getElementById('dl-meta'),
   fontDown: document.getElementById('dl-font-down'),
   fontUp: document.getElementById('dl-font-up'),
   opacity: document.getElementById('dl-opacity'),
@@ -87,8 +85,7 @@ function applySnapshot(s) {
     hash: s.hash, title: s.title, artist: s.artist,
     lyricLoaded: s.lyricLoaded, playing: s.playing, lineCount: s.lyric.length,
   };
-  el.meta.textContent = s.title === '未在播放' ? 'RE:KG' : `${s.title} · ${s.artist}`;
-  el.title.textContent = s.title === '未在播放' ? '桌面歌词' : s.title;
+  // 小窗只展示当前句 / 译文 / 下一句(2026-11-17 先生要求),不再写歌名与页脚信息
   // 拖动中不覆盖:快照流 150ms 一次,否则顶回滑杆/字号(连点后回声带同值,收敛一致)
   if (!dragging) {
     document.documentElement.style.setProperty('--dl-font-size', `${s.fontSize}px`);

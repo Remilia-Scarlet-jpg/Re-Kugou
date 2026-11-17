@@ -7,8 +7,8 @@
   --lyric-highlight: #fff0b8;
   --lyric-glow: #9cffdf;
   --dl-font-size: 40px;
-  /* 当前句字号固定(不随 A−/A+ 变化);20px = 先生 2026-11-06 第二次收缩(原来 30 还嫌大,约 0.65 倍) */
-  --dl-cur-size: 20px;
+  /* 当前句字号固定(不随 A−/A+ 变化);24px = 2026-11-17 在 20px 基础上放大 0.2 倍(先生要求) */
+  --dl-cur-size: 24px;
   --dl-opacity: 0.92;
   /* 无背景下的文字描边:深色多层阴影 = 任何壁纸上都读得清 */
   --dl-outline: 0 1px 2px rgba(0, 0, 0, .92), 0 0 6px rgba(0, 0, 0, .78), 0 0 14px rgba(0, 0, 0, .5);
@@ -38,17 +38,7 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
   flex: none;
 }
 .dl-drag:active { cursor: grabbing; }
-#dl-title {
-  font-size: 13px;
-  color: var(--lyric-secondary);
-  opacity: .85;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-shadow: var(--dl-outline);
-}
-.dl-ctrls { display: flex; align-items: center; gap: 6px; }
+.dl-ctrls { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .chip {
   border: none;
   border-radius: 12px;
@@ -64,6 +54,7 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
 #dl-opacity { width: 64px; accent-color: #00f5d4; cursor: pointer; }
 .dl-current {
   font-size: var(--dl-cur-size);
+  margin-top: auto; /* 删掉顶栏歌名与页脚后,当前句/译文/下一句整块垂直居中 */
   font-weight: 600;
   color: var(--lyric-primary);
   opacity: var(--dl-opacity);
@@ -104,6 +95,7 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
 }
 .dl-next {
   margin-top: 6px;
+  margin-bottom: auto;
   font-size: calc(var(--dl-font-size) * .42);
   color: var(--lyric-secondary);
   opacity: .5;
@@ -113,30 +105,18 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
   white-space: nowrap;
   text-shadow: var(--dl-outline);
 }
-.dl-meta {
-  margin-top: auto;
-  font-size: 11px;
-  color: var(--lyric-secondary);
-  opacity: .45;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: none;
-  text-shadow: var(--dl-outline);
-}
 
 /* Electron 模式:窗口本身透明(transparent:true),页面不再画卡片底/圆角/投影 */
 html[data-electron], html[data-electron] body { background: transparent; }
 html[data-electron] #dl-root { background: transparent; }
-/* 锁定态:控件淡出做提示,但**保持可点**——命中判定在 Electron 主进程(它轮询光标,
-   不依赖 mousemove 转发),`data-hit=1` 即主进程判定「现在可点」(鼠标在顶部控制条上或刚动过)。
-   浏览器 popup 没有穿透能力 → `data-hit` 恒为 1,控件常显常可点,只把 🔒 图标切过去。
+/* 锁定态:只留 🔒,其余控件**隐藏并禁用**(2026-11-17 先生要求;旧版是淡化但仍可点)。
+   命中判定仍在 Electron 主进程(它轮询光标,不依赖 mousemove 转发),`data-hit=1` 即「现在可点」。
+   浏览器 popup 没有穿透能力 → `data-hit` 恒为 1,🔒 常显常可点。
    原生拖拽区在锁定时取消,锁上就不能被拖动。 */
 html[data-locked] #dl-drag { -webkit-app-region: no-drag; cursor: default; }
-html[data-locked] #dl-title { opacity: .55; }
-html[data-locked] .dl-ctrls { opacity: .28; transition: opacity .18s ease; }
-html[data-locked][data-hit="1"] .dl-ctrls { opacity: .95; }
+html[data-locked] .dl-ctrls > :not(#dl-lock) { display: none; }
+html[data-locked] #dl-lock { opacity: .55; transition: opacity .18s ease; }
+html[data-locked][data-hit="1"] #dl-lock { opacity: .95; }
 /* Electron 原生窗口拖拽:手柄走 app-region(与系统边缘 resize 互斥,拖动不误触放大);
    手柄内的控件(A−/A+/滑杆/✕)恢复可点(no-drag)。浏览器模式忽略(app-region 无效)。 */
 html[data-electron] #dl-drag { -webkit-app-region: drag; }

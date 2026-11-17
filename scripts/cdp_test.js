@@ -761,12 +761,12 @@ async function newTarget() {
       check('S23 桌词:跨行外推 → 第三句', await poll2("document.getElementById('dl-current').textContent === '第三句'", 8000),
         await ev2("document.getElementById('dl-current').textContent"));
       // 字号连点:font-down×3 本地立即生效(旧 bug 过期快照基准连点失效)
-      // ⚠️ 2026-11-05 起语义变了:当前句固定 20px(2026-11-06 从 40 → 30 → 20),滑杆只调「下一句」的等待字号
+      // ⚠️ 2026-11-05 起语义变了:当前句固定(2026-11-06 40→30→20,2026-11-17 放大 0.2 倍到 24px),滑杆只调「下一句」的等待字号
       await ev2("(()=>{const b=document.getElementById('dl-font-down'); b.click(); b.click(); b.click(); return true;})()");
-      check('S23 桌词:连点 font-down×3 → 下一句 14.28px,当前句仍固定 20px', await poll2(`(()=>{
+      check('S23 桌词:连点 font-down×3 → 下一句 14.28px,当前句仍固定 24px', await poll2(`(()=>{
         const cur=getComputedStyle(document.getElementById('dl-current')).fontSize;
         const nxt=parseFloat(getComputedStyle(document.getElementById('dl-next')).fontSize);
-        return cur==='20px' && Math.abs(nxt-34*0.42)<0.5;
+        return cur==='24px' && Math.abs(nxt-34*0.42)<0.5;
       })()`, 5000),
         await ev2("[getComputedStyle(document.getElementById('dl-current')).fontSize,getComputedStyle(document.getElementById('dl-next')).fontSize].join(' / ')"));
       check('S23 桌词:回写主窗 fx 收敛 34', await poll("window.__APP_FX.dlFontSize === 34", 5000), `${await ev('window.__APP_FX.dlFontSize')}`);
@@ -775,7 +775,7 @@ async function newTarget() {
       check('S23 桌词:面板 48 推小窗生效(只影响下一句)', await poll2(`(()=>{
         const cur=getComputedStyle(document.getElementById('dl-current')).fontSize;
         const nxt=parseFloat(getComputedStyle(document.getElementById('dl-next')).fontSize);
-        return cur==='20px' && Math.abs(nxt-48*0.42)<0.5;
+        return cur==='24px' && Math.abs(nxt-48*0.42)<0.5;
       })()`, 5000),
         await ev2("[getComputedStyle(document.getElementById('dl-current')).fontSize,getComputedStyle(document.getElementById('dl-next')).fontSize].join(' / ')"));
       // 透明度滑杆:本地即时 + 回写收敛 + 拖动守卫(快照流不顶回拖动中的滑杆)
@@ -1685,6 +1685,14 @@ async function newTarget() {
         "document.getElementById('desktop-lyrics-btn') && window.__APP_DESKTOP_LYRICS === '1' && document.getElementById('dl-lock-btn').hidden === false", 5000));
       const t = await attachTarget('desktop-lyrics.html');
       check('S32 小窗:目标存在', !!t);
+      // 2026-11-17 先生要求:小窗只展示当前句 / 译文 / 下一句,顶栏歌名与页脚信息去掉
+      check('S32 小窗:只剩当前句·译文·下一句(无顶栏歌名与页脚)', await ev4(`(()=>{
+        return !document.getElementById('dl-title')
+          && !document.getElementById('dl-meta')
+          && !!document.getElementById('dl-current')
+          && !!document.getElementById('dl-trans')
+          && !!document.getElementById('dl-next');
+      })()`) === true);
       if (!t) return;
       const ws4 = new WebSocket(t.webSocketDebuggerUrl);
       await new Promise((res, rej) => { ws4.onopen = res; ws4.onerror = () => rej(new Error('ws4 connect failed')); });
@@ -1705,27 +1713,36 @@ async function newTarget() {
         mainLock?.flag === '1' && mainLock.text === '🔒' && mainLock.on === true, JSON.stringify(mainLock));
       check('S32 锁定:持久化 vmp.desktopLyrics.v1.locked',
         (await ev("JSON.parse(localStorage.getItem('vmp.desktopLyrics.v1')||'{}').locked")) === true);
-      check('S32 小窗:同步锁定外观(控件淡化 + 拖拽光标取消 + 标记)', await poll4(`(()=>{
-        const ctrls=document.querySelector('.dl-ctrls');
+      check('S32 小窗:同步锁定外观(只留 🔒,其余控件隐藏 + 拖拽光标取消 + 标记)', await poll4(`(()=>{
+        const lock=document.getElementById('dl-lock');
+        const others=[...document.querySelectorAll('.dl-ctrls > *')].filter(n=>n.id!=='dl-lock');
         return window.__APP_DL_LOCKED === '1'
           && document.documentElement.dataset.locked === '1'
-          && parseFloat(getComputedStyle(ctrls).opacity) < 1
+          && others.length > 0
+          && others.every(n=>getComputedStyle(n).display === 'none')
+          && getComputedStyle(lock).display !== 'none'
           && getComputedStyle(document.getElementById('dl-drag')).cursor === 'default';
       })()`, 4000, 300));
-      // 关键回归:锁定后小窗的控件必须仍可点 —— 早先版本给锁定态加过 pointer-events:none,
+      // 关键回归:锁定后 🔒 必须仍可点 —— 早先版本给锁定态加过 pointer-events:none,
       // 锁上就再也解不开;命中判定现已移到 Electron 主进程(轮询光标,不依赖 mousemove 转发)
-      check('S32 锁定:小窗控件未被禁用且保持可见(能自己解锁)', await ev4(`(()=>{
-        const b=document.getElementById('dl-lock'), ctrls=document.querySelector('.dl-ctrls');
-        return getComputedStyle(b).pointerEvents !== 'none'
-          && getComputedStyle(ctrls).pointerEvents !== 'none'
+      check('S32 锁定:🔒 仍可点,其余控件已禁用(不是淡化)', await ev4(`(()=>{
+        const lock=document.getElementById('dl-lock');
+        const others=[...document.querySelectorAll('.dl-ctrls > *')].filter(n=>n.id!=='dl-lock');
+        const ls=getComputedStyle(lock);
+        return ls.pointerEvents !== 'none' && ls.display !== 'none'
           && document.documentElement.dataset.hit === '1'      // 浏览器模式:主进程不推 hit → 恒可点可见
-          && parseFloat(getComputedStyle(ctrls).opacity) > 0.6;
+          && others.every(n=>getComputedStyle(n).display === 'none');
       })()`) === true);
       // 小窗点 🔒 → BroadcastChannel 回主窗 → 主窗解锁(穿透态下这条路径不可达,浏览器模式可验协议)
       await ev4("document.getElementById('dl-lock').click()");
       check('S32 解锁:小窗 🔒 经 toggle-lock 回主窗解锁', await poll(
         "window.__APP_DL_LOCKED === '0' && JSON.parse(localStorage.getItem('vmp.desktopLyrics.v1')||'{}').locked === false", 5000),
         await ev("document.getElementById('dl-lock-btn').textContent"));
+      // 解锁后其余控件必须回来(锁定只是隐藏,不是永久移除)
+      check('S32 解锁:其余控件恢复显示', await ev4(`(()=>{
+        const others=[...document.querySelectorAll('.dl-ctrls > *')].filter(n=>n.id!=='dl-lock');
+        return others.length > 0 && others.every(n=>getComputedStyle(n).display !== 'none');
+      })()`) === true);
       try { ws4.close(); } catch {}
       await ev("window.__APP_DESKTOP_LYRICS === '1' && document.getElementById('desktop-lyrics-btn').click(), true");
       await poll("window.__APP_DESKTOP_LYRICS === '0'", 3000);
