@@ -1126,16 +1126,6 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
 }
 .qr-status { margin-top: 12px; font-size: 13px; color: var(--text-2, #aab); }
 .qr-status.warn { color: var(--danger); }
-/* 二维码「保存到相册」:仅 Android 出现(ui.js 解除 hidden),桌面版保持 hidden 不占位 */
-#qr-save {
-  display: block;
-  width: 100%;
-  margin: 10px 0 2px;
-  padding: 10px 14px;
-  min-height: 44px;
-  font-size: 13px;
-}
-#qr-save[hidden] { display: none; }
 .login-tip { margin-top: 8px; font-size: 11px; color: rgba(170, 170, 187, 0.6); line-height: 1.5; }
 
 /* ============ 视觉 DIY 控制台(无边框玻璃,全站 border 铁律) ============ */
@@ -1321,7 +1311,7 @@ body.ui-hidden #ui-show-btn { opacity: .28; pointer-events: auto; }
 body.ui-hidden #ui-show-btn:hover { opacity: .95; }
 
 /* ============ 全屏歌词(手机上替代桌词小窗) ============ */
-/* 由歌词抽屉头「大字」进入,右上角 ✕ / 点背景 / Esc / Android 返回键退出。
+/* 由歌词抽屉头「大字」进入,右上角 ✕ / 点背景 / Esc 退出。
    刻意做成纯 DOM 覆盖层而不是原生悬浮窗:零权限、零原生代码,桌面与手机表现一致。 */
 .lyric-full {
   position: fixed;
@@ -1382,11 +1372,11 @@ body.ui-hidden #ui-show-btn:hover { opacity: .95; }
   .lyric-full-prev, .lyric-full-next { font-size: 15px; }
 }
 
-/* ============ Android / 手机竖屏(移植第二批) ============ */
-/* 桌面播放条是三列定宽(歌名 300 + 控件 360 + 音量 210 ≈ 900px),手机上必然溢出,
+/* ============ 手机竖屏 / 窄视口 ============ */
+/* 桌面播放条是三列定宽(歌名 300 + 控件 360 + 音量 210 ≈ 900px),窄屏必然溢出,
    这里改为三行堆叠:①歌名 ②控件+进度 ③静音/隐藏。触控目标放大到 ≥44px,
-   底部补安全区(iPhone 手势条 / Android 手势导航),并把抽屉底边抬到新播放条之上。
-   ⚠️ 数值来自布局计算,真机截图后可能还要微调(scripts/mobile_shot.mjs 可出图)。 */
+   底部补安全区(iPhone 手势条),并把抽屉底边抬到新播放条之上。
+   ⚠️ 数值来自布局计算,真机截图后可能还要微调。 */
 @media (max-width: 640px) {
   .playerbar {
     left: 8px; right: 8px; transform: none;
@@ -1401,7 +1391,7 @@ body.ui-hidden #ui-show-btn:hover { opacity: .95; }
   .np-artist { font-size: 11px; margin-top: 2px; }
   .controls { flex: 1 1 100%; order: 2; width: auto; gap: 4px; }
   .ctrl-row { gap: 20px; }
-  /* 触控面显式给到 ≥44px(iOS/Android 的最小可点尺寸):图标 22px + padding 12px×2 = 46px。
+  /* 触控面显式给到 ≥44px(移动端最小可点尺寸):图标 22px + padding 12px×2 = 46px。
      不要只靠 padding 目测 —— S36 有硬断言,改小会直接挂测试 */
   .ctrl { padding: 12px; font-size: 20px; min-width: 44px; min-height: 44px; }
   .ctrl svg { width: 22px; height: 22px; }
@@ -1416,9 +1406,5 @@ body.ui-hidden #ui-show-btn:hover { opacity: .95; }
   .login-box { width: min(340px, calc(100vw - 40px)); }
 }
 
-/* 桌面专属能力在 Android 上没有对应物:「桌词」小窗是 window.open 独立置顶窗 +
-   Electron 的鼠标穿透,手机上既开不了也没法令其置顶(悬浮窗要另做,见 docs/android)。
-   v1 先隐藏,避免点了没反应。 */
-html[data-platform="android"] #desktop-lyrics-btn,
-html[data-platform="android"] #dl-lock-btn { display: none; }
+/* ---------- 移动端视口(纯 CSS 媒体查询,不再有平台分支) ---------- */
 

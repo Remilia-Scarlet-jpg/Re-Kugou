@@ -52,7 +52,6 @@ const el = {
   loginClose: $('login-close'),
   qrImg: $('qr-img'),
   qrStatus: $('qr-status'),
-  qrSave: $('qr-save'),
   rightDrawer: $('right-drawer'),
   drawerTab: $('drawer-tab'),
   drawerClose: $('drawer-close'),
@@ -1043,10 +1042,7 @@ async function startQrFlow() {
       return;
     }
     el.qrImg.src = img;
-    // Android:同一部手机没法扫自己屏幕 → 露出「保存到相册」,用酷狗 App 的相册入口自扫
-    const isAndroid = document.documentElement.dataset.platform === 'android';
-    if (el.qrSave) el.qrSave.hidden = !isAndroid;
-    setQrStatus(isAndroid ? '扫码登录:用另一台设备扫,或点下方按钮存相册后自扫' : '请用酷狗音乐 App 扫码');
+    setQrStatus('请用酷狗音乐 App 扫码');
     qrTimer = setInterval(async () => {
       try {
         const st = await api.checkQrLogin(key);
@@ -1082,29 +1078,6 @@ function closeLoginModal() {
   clearInterval(qrTimer);
   qrTimer = null;
   el.qrImg.src = '';
-  if (el.qrSave) el.qrSave.hidden = true;
-}
-
-/** Android 专属:把当前二维码存进系统相册(NativeShell 插件,MediaStore),用酷狗 App「扫一扫 → 相册」自扫 */
-async function saveQrToGallery() {
-  const plugin = window.Capacitor?.Plugins?.NativeShell;
-  const src = el.qrImg?.src || '';
-  if (!plugin) {
-    return toast('当前环境不支持保存到相册', true);
-  }
-  if (!src.startsWith('data:')) {
-    return toast('二维码还没准备好,稍等一下', true);
-  }
-  try {
-    await plugin.saveImage({
-      base64: src.slice(src.indexOf(',') + 1),
-      filename: `rekg-login-${Date.now()}.png`,
-    });
-    setQrStatus('已存入相册:打开酷狗 App → 扫一扫 → 相册 → 选这张图');
-    toast('二维码已存入相册');
-  } catch (e) {
-    toast(`保存失败:${e?.message || '未知错误'}`, true);
-  }
 }
 
 /** VIP 数据字段名不确定,防御式提取:类型 + 到期时间(实测 vip_type=6/is_vip=1,到期时间为 'YYYY-MM-DD HH:mm:ss' 字符串) */
@@ -1516,40 +1489,6 @@ export function initUI() {
     if (el.rightDrawer.classList.contains('open')) closeDrawer();
   });
 
-  // Android 返回键:逐层关闭,最后一层才交还给系统(退出 App)。
-  // 原生侧(MainActivity.onBackPressed)用 evaluateJavascript 调这里并读返回值:
-  //   '1' = 已消费(关了一层界面),'0' = 没东西可关 → 原生执行默认返回。
-  // 顺序必须与 z 序一致:登录弹窗 > 纯净模式 > 歌词抽屉 > 右抽屉。
-  if (document.documentElement.dataset.platform === 'android') {
-    window.__APP_NATIVE_BACK = () => {
-      if (el.llmModal && el.llmModal.classList.contains('open')) {
-        closeLlmModal();
-        return true;
-      }
-      if (el.loginModal && el.loginModal.classList.contains('open')) {
-        closeLoginModal();
-        return true;
-      }
-      if (isLyricFullOpen()) {
-        toggleLyricFull(false);
-        return true;
-      }
-      if (document.body.classList.contains('ui-hidden')) {
-        setUiHidden(false);
-        return true;
-      }
-      if (el.lyricDrawer.classList.contains('open')) {
-        toggleLyric(false);
-        return true;
-      }
-      if (el.rightDrawer.classList.contains('open')) {
-        closeDrawer();
-        return true;
-      }
-      return false;
-    };
-  }
-
   // 播放条
   el.btnPlay.addEventListener('click', () => player.toggle());
   el.btnNext.addEventListener('click', () => player.next());
@@ -1692,7 +1631,7 @@ export function initUI() {
   el.main?.addEventListener('click', (e) => {
     if (e.target instanceof Element && e.target.closest('#user-llm')) openLlmModal();
   });
-  // 全屏歌词:抽屉头「大字」进,右上角 ✕ / Esc / Android 返回键出;点背景空白也算退出
+  // 全屏歌词:抽屉头「大字」进,右上角 ✕ / Esc 出;点背景空白也算退出
   el.lyricFullBtn?.addEventListener('click', () => toggleLyricFull(true));
   el.lyricFullClose?.addEventListener('click', () => toggleLyricFull(false));
   el.lyricFull?.addEventListener('click', (e) => {
@@ -1738,8 +1677,6 @@ export function initUI() {
   el.loginModal.addEventListener('click', (e) => {
     if (e.target === el.loginModal) closeLoginModal();
   });
-  // Android:保存二维码到相册(原生 NativeShell 插件;桌面版按钮始终 hidden)
-  el.qrSave?.addEventListener('click', saveQrToGallery);
   refreshLoginState();
 
   // 音量初始值:player 已从 vmp.volume.v1 恢复上次的值,这里只把 UI 同步成它的真值

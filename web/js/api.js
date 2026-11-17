@@ -301,7 +301,7 @@ export function parsePlaylistInput(text) {
 // ---------- 封面 ----------
 
 /**
- * 歌曲封面补全(hash + album_id → /images,android 签名接口,实测 lite 可用)。
+ * 歌曲封面补全(hash + album_id → /images,仅 lite 可用的签名接口)。
  * 分享歌单解析出的歌只有 hash + album_id 而无封面,由它补全;
  * 响应封面在 data[0].album[0].sizable_cover({size} 占位,由 fixImgUrl 替换)。
  * 失败返回 ''(调用方回退词曲检索/占位图)。

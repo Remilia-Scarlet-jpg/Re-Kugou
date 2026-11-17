@@ -1882,8 +1882,8 @@ async function newTarget() {
       await poll("!document.getElementById('lyric-drawer').classList.contains('open')", 2000);
     });
 
-    // S36 手机视口布局(390x844 · Android 移植):桌面三列定宽的播放条在手机上必须改成三行堆叠,
-    // 不许横向溢出、不许把按钮挤到点不到;desktop-only 控件要按 data-platform 隐藏。
+    // S36 手机视口布局(390x844):桌面三列定宽的播放条在窄屏必须改成三行堆叠,
+    // 不许横向溢出、不许把按钮挤到点不到。
     await step('S36', async () => {
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 390, height: 844, deviceScaleFactor: 3, mobile: true,
@@ -1912,21 +1912,11 @@ async function newTarget() {
       check('S36 触控面 ≥44px(播放/上一首/隐藏)',
         touch(m?.play) && touch(m?.prev) && touch(m?.hide),
         JSON.stringify({ play: m?.play, prev: m?.prev, hide: m?.hide }));
-      // android 分支:桌词/锁定是 Electron 专属,手机必须隐藏(直接切 data-platform 验 CSS 分流)
-      const dlDisplay = await ev(`(() => {
-        const h = document.documentElement, old = h.dataset.platform;
-        h.dataset.platform = 'android';
-        const v = getComputedStyle(document.getElementById('desktop-lyrics-btn')).display;
-        h.dataset.platform = old;
-        return v;
-      })()`);
-      check('S36 android 分支:桌词按钮隐藏', dlDisplay === 'none', String(dlDisplay));
       await cdp.send('Emulation.clearDeviceMetricsOverride');
       check('S36 收尾:视口恢复', await poll('document.documentElement.clientWidth !== 390', 3000));
     });
 
-    // S37 全屏歌词(Android 移植第 9 轮):桌词小窗在手机上不可用,替代方案是纯 DOM 覆盖层 ——
-    // 整屏大字,由歌词抽屉头「大字」进入,✕ / 点背景 / Esc / Android 返回键退出。零原生代码、零新权限。
+    // S37 全屏歌词:纯 DOM 覆盖层 —— 整屏大字,由歌词抽屉头「大字」进入,✕ / 点背景 / Esc 退出。
     await step('S37', async () => {
       const init = await ev(`(()=>{const el=document.getElementById('lyric-full');
         return { open: el.classList.contains('open'), display: getComputedStyle(el).display, flag: window.__APP_LYRIC_FULL }; })()`);

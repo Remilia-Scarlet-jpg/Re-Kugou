@@ -4,13 +4,7 @@
  * 图案:酷狗音乐风 — 蓝渐变圆角方 + 左上高光 + 白色 RE 字标(几何 SDF 手绘字形,无字体依赖)。
  *
  * 用法:
- *   node scripts/gen_icon.js            → Windows 图标(build/icon.ico + icon.png)
- *   node scripts/gen_icon.js --android  → Android 图标(android/app/src/main/res/ 下各 mipmap 密度目录)
- *
- * Android 的两种形态:
- *   ic_launcher(.round).png  自适应图标在 API<26 上的回退位图(整块蓝底 + 字标;round 用圆形遮罩)
- *   ic_launcher_foreground.png  自适应图标前景(透明底 + 居中字标),背景由 drawable/ic_launcher_bg.xml 提供
- *   ⚠️ 自适应图标画布 108dp,安全区只有中间 72dp —— 前景字标必须缩到 ~0.68,否则会被系统裁掉
+ *   node scripts/gen_icon.js  → Windows 图标(build/icon.ico + icon.png)
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -229,32 +223,4 @@ function writeWindowsIcons() {
   console.log(`icon.ico(${entries.map((e) => e.size).join('/')})+ icon.png(512) → ${OUT_DIR}`);
 }
 
-function writeAndroidIcons() {
-  const RES = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'res');
-  if (!fs.existsSync(RES)) {
-    console.log('未找到 android/ 工程,跳过(先跑 npx cap add android)');
-    return;
-  }
-  const full = render(SRC, sample);
-  const round = render(SRC, (x, y) => sampleIcon(x, y, true));
-  const fg = render(SRC, sampleForeground);
-  const DENSITIES = [['mdpi', 1], ['hdpi', 1.5], ['xhdpi', 2], ['xxhdpi', 3], ['xxxhdpi', 4]];
-  const written = [];
-  for (const [name, k] of DENSITIES) {
-    const dir = path.join(RES, `mipmap-${name}`);
-    fs.mkdirSync(dir, { recursive: true });
-    const iconSize = Math.round(48 * k);
-    const fgSize = Math.round(108 * k); // 自适应图标画布固定 108dp
-    fs.writeFileSync(path.join(dir, 'ic_launcher.png'), encodePNG(iconSize, iconSize, downscale(full, SRC, iconSize)));
-    fs.writeFileSync(path.join(dir, 'ic_launcher_round.png'), encodePNG(iconSize, iconSize, downscale(round, SRC, iconSize)));
-    fs.writeFileSync(path.join(dir, 'ic_launcher_foreground.png'), encodePNG(fgSize, fgSize, downscale(fg, SRC, fgSize)));
-    written.push(`mipmap-${name} ${iconSize}/${fgSize}`);
-  }
-  console.log(`Android 图标已写入 ${RES}\n  ${written.join('\n  ')}`);
-}
-
-if (process.argv.includes('--android')) {
-  writeAndroidIcons();
-} else {
-  writeWindowsIcons();
-}
+writeWindowsIcons();
