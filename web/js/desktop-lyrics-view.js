@@ -92,6 +92,16 @@ function applySnapshot(s) {
     document.documentElement.style.setProperty('--dl-opacity', String(s.opacity));
     el.opacity.value = String(s.opacity);
   }
+  // 颜色 / 译文大小:与拖动无关,每帧都可写(2026-11-19 新增,视觉面板「桌词」组可调)
+  if (Number.isFinite(s.transFontSize)) {
+    document.documentElement.style.setProperty('--dl-trans-size', `${s.transFontSize}px`);
+  }
+  if (typeof s.lyricColor === 'string') {
+    document.documentElement.style.setProperty('--lyric-primary', s.lyricColor);
+  }
+  if (typeof s.transColor === 'string') {
+    document.documentElement.style.setProperty('--dl-trans-color', s.transColor);
+  }
 }
 
 // ---------- 外推高亮渲染(100ms 节拍,外推平滑) ----------

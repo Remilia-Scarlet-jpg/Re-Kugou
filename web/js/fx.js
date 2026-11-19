@@ -35,6 +35,9 @@ export const FX_DEFAULTS = {
   // 桌面歌词小窗
   dlFontSize: 40,
   dlOpacity: 0.92,
+  transFontSize: 16, // 译文字号(px);12–28,默认 16 = 当前句 24px 的 2/3
+  lyricColor: '#f6fdff', // 当前句颜色(原写死在 CSS 的 --lyric-primary)
+  transColor: '#a8f6ff', // 译文颜色(原写死在 CSS 的 --lyric-secondary)
 };
 
 /** 归一化规格:[min, max, step];step 只对数字字段取整;bool 字段用 [0,1,1] 占位 */
@@ -60,6 +63,11 @@ export const FX_SPECS = {
   bgDuck: [0, 1, 1],
   dlFontSize: [24, 64, 2],
   dlOpacity: [0.28, 1, 0.02],
+  transFontSize: [12, 28, 1],
+  // 颜色字段不是数值区间:null = 只占位(setFx 的 `in FX_SPECS` 校验要放行),
+  // 归一化由 normalizeField 的字符串分支按 #rrggbb 校验
+  lyricColor: null,
+  transColor: null,
 };
 
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
@@ -71,6 +79,11 @@ function normalizeField(key, rawValue) {
   if (typeof def === 'boolean') {
     return rawValue == null ? def : !!rawValue;
   }
+  // 颜色字段:只认 #rrggbb,空值/非法值/旧数据一律回退默认色
+  if (typeof def === 'string') {
+    const s = String(rawValue ?? '').trim();
+    return /^#[0-9a-f]{6}$/i.test(s) ? s.toLowerCase() : def;
+  }
   const [min, max, step] = FX_SPECS[key];
   const n = Number(rawValue);
   if (!Number.isFinite(n)) return def;
@@ -79,7 +92,8 @@ function normalizeField(key, rawValue) {
 
 function normalizeFx(raw) {
   const out = { ...FX_DEFAULTS };
-  for (const key of Object.keys(FX_SPECS)) out[key] = normalizeField(key, raw?.[key]);
+  // 遍历 FX_DEFAULTS 而不是 FX_SPECS:颜色字段不在数值规格里,但同样要从 localStorage 恢复
+  for (const key of Object.keys(FX_DEFAULTS)) out[key] = normalizeField(key, raw?.[key]);
   return out;
 }
 

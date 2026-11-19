@@ -2201,6 +2201,56 @@ async function newTarget() {
         JSON.stringify(drag));
     });
 
+    // S44 桌词颜色 + 译文大小(2026-11-19 先生要求):视觉面板「桌词」组新增「歌词颜色」「译文颜色」
+    // 两个原生取色器与「译文大小」滑杆;值随快照广播给桌词小窗(小窗写 --lyric-primary /
+    // --dl-trans-color / --dl-trans-size 三个 CSS 变量),并落盘 vmp.fx.v1。
+    await step('S44', async () => {
+      await openDrawer();
+      await ev("document.querySelector('.drawer-tab-btn[data-tab=visual]').click()");
+      await poll("!document.getElementById('visual-pane').hidden", 3000);
+      const ctrls = await ev(`(()=>{
+        const q=(id)=>document.getElementById(id);
+        const dlGroup=[...document.querySelectorAll('#visual-pane .fx-group')]
+          .find(g=>g.querySelector('.fx-group-head')?.textContent==='桌词');
+        return { size:!!q('fx-transFontSize'), lyric:!!q('fx-lyricColor'), trans:!!q('fx-transColor'),
+                 lyricType:q('fx-lyricColor')?.type, transType:q('fx-transColor')?.type,
+                 inGroup:!!dlGroup?.querySelector('#fx-transFontSize') };
+      })()`);
+      check('S44 视觉面板「桌词」组:译文大小滑杆 + 两个原生取色器',
+        ctrls?.size === true && ctrls.lyric === true && ctrls.trans === true
+        && ctrls.lyricType === 'color' && ctrls.transType === 'color' && ctrls.inGroup === true,
+        JSON.stringify(ctrls));
+
+      const applied = await ev(`(async()=>{
+        const fx = await import('/js/fx.js');
+        fx.setFx('transFontSize', 22);
+        fx.setFx('lyricColor', '#ffcc00');
+        fx.setFx('transColor', '#00ffcc');
+        await new Promise(r=>setTimeout(r,450)); // 写盘防抖 300ms
+        const cur = fx.getFx();
+        const saved = JSON.parse(localStorage.getItem('vmp.fx.v1')||'{}');
+        return { s:cur.transFontSize, l:cur.lyricColor, t:cur.transColor,
+                 saved:{ s:saved.transFontSize, l:saved.lyricColor, t:saved.transColor } };
+      })()`);
+      check('S44 设值生效并落盘 vmp.fx.v1',
+        applied?.s === 22 && applied.l === '#ffcc00' && applied.t === '#00ffcc'
+        && applied.saved.s === 22 && applied.saved.l === '#ffcc00' && applied.saved.t === '#00ffcc',
+        JSON.stringify(applied));
+
+      const clamp = await ev(`(async()=>{
+        const fx = await import('/js/fx.js');
+        fx.setFx('transFontSize', 999); const hi = fx.getFx().transFontSize; // 钳到 28
+        fx.setFx('transFontSize', 0);   const lo = fx.getFx().transFontSize; // 钳到 12
+        fx.setFx('lyricColor', 'not-a-color'); const bad = fx.getFx().lyricColor; // 非法 → 回退默认色
+        fx.setFx('transFontSize', 16); fx.setFx('lyricColor', '#f6fdff'); fx.setFx('transColor', '#a8f6ff');
+        await new Promise(r=>setTimeout(r,450));
+        return { hi, lo, bad, back:{ s:fx.getFx().transFontSize, l:fx.getFx().lyricColor } };
+      })()`);
+      check('S44 归一化:字号钳在 12–28、非法颜色回退默认色',
+        clamp?.hi === 28 && clamp.lo === 12 && clamp.bad === '#f6fdff'
+        && clamp.back.s === 16 && clamp.back.l === '#f6fdff', JSON.stringify(clamp));
+    });
+
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)
     const errs = [...cdp.exceptions, ...cdp.consoleErrors].filter((e) => !isEnvNoise(e));
     check('S9 全程无未捕获异常/控制台报错', errs.length === 0, errs.slice(0, 3).join(' | '));

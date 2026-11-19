@@ -1182,6 +1182,23 @@ input[type="range"]:disabled { opacity: 0.35; cursor: default; }
   text-align: right;
 }
 .fx-range { width: 100%; }
+/* 颜色字段(歌词/译文取色):标签与原生取色器同一行;取色器无边框,圆角靠 swatch 自身 */
+.fx-item.fx-color-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.fx-color {
+  width: 44px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+.fx-color::-webkit-color-swatch-wrapper { padding: 0; }
+.fx-color::-webkit-color-swatch { border: none; border-radius: 6px; }
 .fx-item.fx-toggle-item {
   display: flex;
   align-items: center;

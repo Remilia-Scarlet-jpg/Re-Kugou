@@ -45,7 +45,7 @@ const FX_GROUPS = [
   },
   {
     title: '桌词',
-    items: ['dlFontSize', 'dlOpacity'],
+    items: ['dlFontSize', 'transFontSize', 'dlOpacity', 'lyricColor', 'transColor'],
   },
 ];
 
@@ -58,6 +58,7 @@ const LABELS = {
   bgOpacity: '壁纸透明度', bgZoom: '壁纸缩放', bgBlur: '壁纸模糊',
   bgVolume: '壁纸音量', bgDuck: '音乐时静音',
   dlFontSize: '桌词字号', dlOpacity: '桌词透明度',
+  transFontSize: '译文大小', lyricColor: '歌词颜色', transColor: '译文颜色',
 };
 
 const fmt = (v) => String(Math.round(v * 100) / 100);
@@ -71,7 +72,9 @@ const paintInput = (inp) => {
 function renderItem(key) {
   const def = FX_DEFAULTS[key];
   const item = document.createElement('div');
-  item.className = 'fx-item fx-param' + (typeof def === 'boolean' ? ' fx-toggle-item' : '');
+  item.className = 'fx-item fx-param'
+    + (typeof def === 'boolean' ? ' fx-toggle-item' : '')
+    + (typeof def === 'string' ? ' fx-color-item' : '');
 
   if (typeof def === 'boolean') {
     const label = document.createElement('span');
@@ -83,6 +86,22 @@ function renderItem(key) {
     btn.title = `开关:${LABELS[key]}`;
     btn.addEventListener('click', () => setFx(key, !getFx()[key]));
     item.append(label, btn);
+    return item;
+  }
+
+  // 颜色字段:原生取色器(零依赖,Electron/Chromium 原生支持)
+  if (typeof def === 'string') {
+    const label = document.createElement('span');
+    label.className = 'fx-label';
+    label.textContent = LABELS[key];
+    const inp = document.createElement('input');
+    inp.type = 'color';
+    inp.className = 'fx-color';
+    inp.id = `fx-${key}`;
+    inp.value = getFx()[key];
+    inp.title = `取色:${LABELS[key]}`;
+    inp.addEventListener('input', () => setFx(key, inp.value));
+    item.append(label, inp);
     return item;
   }
 
@@ -156,6 +175,10 @@ function syncControls(rootEl) {
     const on = !!fx[key];
     btn.classList.toggle('active', on);
     btn.textContent = on ? '开' : '关';
+  });
+  rootEl.querySelectorAll('.fx-color').forEach((inp) => {
+    const key = inp.id.slice(3);
+    if (typeof fx[key] === 'string') inp.value = fx[key];
   });
 }
 

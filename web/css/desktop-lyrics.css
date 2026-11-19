@@ -9,6 +9,9 @@
   --dl-font-size: 40px;
   /* 当前句字号固定(不随 A−/A+ 变化);24px = 2026-11-17 在 20px 基础上放大 0.2 倍(先生要求) */
   --dl-cur-size: 24px;
+  /* 译文字号与颜色(v 视觉面板「桌词」组可调,默认值与此处一致) */
+  --dl-trans-size: 16px;
+  --dl-trans-color: #a8f6ff;
   --dl-opacity: 0.92;
   /* 无背景下的文字描边:深色多层阴影 = 任何壁纸上都读得清 */
   --dl-outline: 0 1px 2px rgba(0, 0, 0, .92), 0 0 6px rgba(0, 0, 0, .78), 0 0 14px rgba(0, 0, 0, .5);
@@ -71,9 +74,10 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
    先生 2026-11-06 明确「底下要的是中文小字翻译,不是大字」;无译文时不占位 */
 .dl-trans {
   margin-top: 1px;
-  font-size: 16px; /* 2026-11-19 先生反馈「翻译文字太小」:13 → 16px(当前句 24px 的 2/3,仍明显小于当前句) */
+  /* 2026-11-19:13 → 16(先生反馈太小),并改为受视觉面板控制(--dl-trans-size / --dl-trans-color) */
+  font-size: var(--dl-trans-size, 16px);
   font-weight: 500;
-  color: var(--lyric-secondary);
+  color: var(--dl-trans-color, var(--lyric-secondary));
   opacity: .86;
   line-height: 1.35;
   text-align: center;

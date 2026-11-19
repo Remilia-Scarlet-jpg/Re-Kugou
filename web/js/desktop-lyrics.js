@@ -110,6 +110,9 @@ function buildSnapshot() {
     },
     fontSize: getFx().dlFontSize,
     opacity: getFx().dlOpacity,
+    transFontSize: getFx().transFontSize, // 译文大小(px)
+    lyricColor: getFx().lyricColor,       // 当前句颜色
+    transColor: getFx().transColor,       // 译文颜色
     locked, // 小窗据此同步锁定外观(穿透由主进程负责,这里只是状态同步)
   };
 }
@@ -174,9 +177,11 @@ export function initDesktopLyrics() {
   player.on('timeupdate', () => push(false));
   player.on('songchange', () => push(true));
   player.on('statechange', () => push(true));
-  // fx 面板改桌词字号/透明度 → 推小窗(小窗 setFx 请求 → setFx → 本订阅回声,双向收敛)
+  // fx 面板改桌词参数(字号/透明度/译文大小/歌词颜色/译文颜色) → 立即推小窗
+  // (小窗 setFx 请求 → setFx → 本订阅回声,双向收敛)
   subscribe((path) => {
-    if (path === 'dlFontSize' || path === 'dlOpacity') push(true);
+    if (path === 'dlFontSize' || path === 'dlOpacity'
+      || path === 'transFontSize' || path === 'lyricColor' || path === 'transColor') push(true);
   });
   // 主窗卸载/刷新:通知小窗关闭(小窗 7s 无消息自关兜底)
   window.addEventListener('pagehide', () => {
