@@ -105,6 +105,24 @@ migrateLegacyLogin();
 initUI();
 initFxPanel(document.getElementById('visual-pane')); // 视觉 DIY 控制台(右抽屉「视觉」标签页)
 initWallpaper(document.getElementById('visual-pane')); // 壁纸模式(媒体层 + 面板文件区)
+
+// ---------- 歌词配色作用范围(2026-11-19) ----------
+// 视觉面板里勾选哪几处,就把自定义色写到 <html> 的 CSS 变量上;取消勾选 removeProperty,
+// 各界面自动回退到原本的玻璃主题色 —— 关掉即完全复原,不残留。
+// 桌词小窗不在这里:它是独立窗口,走 BroadcastChannel 快照,由 desktop-lyrics-view.js 自己写变量。
+function applyLyricColors() {
+  const fx = getFx();
+  const st = document.documentElement.style;
+  const put = (name, on, val) => { if (on) st.setProperty(name, val); else st.removeProperty(name); };
+  put('--lyric-drawer-color', fx.colorDrawer, fx.lyricColor);
+  put('--lyric-drawer-trans', fx.colorDrawer, fx.transColor);
+  put('--lyric-full-color', fx.colorFull, fx.lyricColor);
+  put('--lyric-full-trans', fx.colorFull, fx.transColor);
+}
+applyLyricColors();
+subscribe((path) => {
+  if (path === 'lyricColor' || path === 'transColor' || path === 'colorDrawer' || path === 'colorFull') applyLyricColors();
+});
 initDesktopLyrics(); // 桌面歌词(独立小窗桥,自绑定 playerbar 按钮)
 
 // ---------- 队列恢复 ----------

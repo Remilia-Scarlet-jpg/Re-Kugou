@@ -96,11 +96,17 @@ function applySnapshot(s) {
   if (Number.isFinite(s.transFontSize)) {
     document.documentElement.style.setProperty('--dl-trans-size', `${s.transFontSize}px`);
   }
-  if (typeof s.lyricColor === 'string') {
+  // 配色开关:colorDl 关 → 移除变量,回退 desktop-lyrics.css 里的默认色
+  const useColor = s.colorDl !== false;
+  if (useColor && typeof s.lyricColor === 'string') {
     document.documentElement.style.setProperty('--lyric-primary', s.lyricColor);
+  } else {
+    document.documentElement.style.removeProperty('--lyric-primary');
   }
-  if (typeof s.transColor === 'string') {
+  if (useColor && typeof s.transColor === 'string') {
     document.documentElement.style.setProperty('--dl-trans-color', s.transColor);
+  } else {
+    document.documentElement.style.removeProperty('--dl-trans-color');
   }
 }
 

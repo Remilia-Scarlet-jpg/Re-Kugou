@@ -45,7 +45,7 @@ const FX_GROUPS = [
   },
   {
     title: '桌词',
-    items: ['dlFontSize', 'transFontSize', 'dlOpacity', 'lyricColor', 'transColor'],
+    items: ['dlFontSize', 'transFontSize', 'dlOpacity', 'lyricColor', 'transColor', 'colorDrawer', 'colorFull', 'colorDl'],
   },
 ];
 
@@ -59,6 +59,7 @@ const LABELS = {
   bgVolume: '壁纸音量', bgDuck: '音乐时静音',
   dlFontSize: '桌词字号', dlOpacity: '桌词透明度',
   transFontSize: '译文大小', lyricColor: '歌词颜色', transColor: '译文颜色',
+  colorDrawer: '配色·抽屉', colorFull: '配色·全屏', colorDl: '配色·桌词',
 };
 
 const fmt = (v) => String(Math.round(v * 100) / 100);

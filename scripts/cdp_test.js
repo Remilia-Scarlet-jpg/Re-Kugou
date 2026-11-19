@@ -2214,11 +2214,13 @@ async function newTarget() {
           .find(g=>g.querySelector('.fx-group-head')?.textContent==='桌词');
         return { size:!!q('fx-transFontSize'), lyric:!!q('fx-lyricColor'), trans:!!q('fx-transColor'),
                  lyricType:q('fx-lyricColor')?.type, transType:q('fx-transColor')?.type,
+                 scope:!!q('fx-colorDrawer') && !!q('fx-colorFull') && !!q('fx-colorDl'),
                  inGroup:!!dlGroup?.querySelector('#fx-transFontSize') };
       })()`);
-      check('S44 视觉面板「桌词」组:译文大小滑杆 + 两个原生取色器',
+      check('S44 视觉面板「桌词」组:译文大小滑杆 + 两个取色器 + 三个配色范围开关',
         ctrls?.size === true && ctrls.lyric === true && ctrls.trans === true
-        && ctrls.lyricType === 'color' && ctrls.transType === 'color' && ctrls.inGroup === true,
+        && ctrls.lyricType === 'color' && ctrls.transType === 'color'
+        && ctrls.scope === true && ctrls.inGroup === true,
         JSON.stringify(ctrls));
 
       const applied = await ev(`(async()=>{
@@ -2249,6 +2251,48 @@ async function newTarget() {
       check('S44 归一化:字号钳在 12–28、非法颜色回退默认色',
         clamp?.hi === 28 && clamp.lo === 12 && clamp.bad === '#f6fdff'
         && clamp.back.s === 16 && clamp.back.l === '#f6fdff', JSON.stringify(clamp));
+
+      // 配色作用范围:勾上写 <html> 变量(抽屉/全屏各自一份),取消勾选 removeProperty → 回退原色
+      const scope = await ev(`(async()=>{
+        const fx = await import('/js/fx.js');
+        fx.setFx('lyricColor', '#ff3366');
+        fx.setFx('transColor', '#33ff66');
+        fx.setFx('colorDrawer', true);
+        fx.setFx('colorFull', true);
+        fx.setFx('colorDl', false);
+        await new Promise(r=>setTimeout(r,80));
+        const cs = getComputedStyle(document.documentElement);
+        const act = document.querySelector('.lyric-line.active');
+        return {
+          drawer: cs.getPropertyValue('--lyric-drawer-color').trim(),
+          drawerTrans: cs.getPropertyValue('--lyric-drawer-trans').trim(),
+          full: cs.getPropertyValue('--lyric-full-color').trim(),
+          activeColor: act ? getComputedStyle(act).color : null,
+        };
+      })()`);
+      const restored = await ev(`(async()=>{
+        const fx = await import('/js/fx.js');
+        fx.setFx('colorDrawer', false);
+        fx.setFx('colorFull', false);
+        fx.setFx('colorDl', true);
+        fx.setFx('lyricColor', '#f6fdff');
+        fx.setFx('transColor', '#a8f6ff');
+        await new Promise(r=>setTimeout(r,450));
+        const st = document.documentElement.style;
+        const act = document.querySelector('.lyric-line.active');
+        return {
+          drawer: st.getPropertyValue('--lyric-drawer-color'),
+          full: st.getPropertyValue('--lyric-full-color'),
+          activeColor: act ? getComputedStyle(act).color : null,
+          saved: (JSON.parse(localStorage.getItem('vmp.fx.v1')||'{}').colorDl),
+        };
+      })()`);
+      check('S44 配色范围:勾选写入变量并染色、取消后移除并回退原色',
+        scope?.drawer === '#ff3366' && scope.drawerTrans === '#33ff66' && scope.full === '#ff3366'
+        && (!scope.activeColor || scope.activeColor === 'rgb(255, 51, 102)')
+        && restored?.drawer === '' && restored.full === '' && restored.saved === true
+        && (!restored.activeColor || restored.activeColor !== 'rgb(255, 51, 102)'),
+        JSON.stringify({ scope, restored }));
     });
 
     // S9 控制台/异常审计(始终执行,环境噪声豁免见 isEnvNoise)

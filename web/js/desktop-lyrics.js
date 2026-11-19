@@ -113,6 +113,7 @@ function buildSnapshot() {
     transFontSize: getFx().transFontSize, // 译文大小(px)
     lyricColor: getFx().lyricColor,       // 当前句颜色
     transColor: getFx().transColor,       // 译文颜色
+    colorDl: getFx().colorDl,             // 桌词是否使用自定义配色(关 → 回退 CSS 默认色)
     locked, // 小窗据此同步锁定外观(穿透由主进程负责,这里只是状态同步)
   };
 }
@@ -181,7 +182,8 @@ export function initDesktopLyrics() {
   // (小窗 setFx 请求 → setFx → 本订阅回声,双向收敛)
   subscribe((path) => {
     if (path === 'dlFontSize' || path === 'dlOpacity'
-      || path === 'transFontSize' || path === 'lyricColor' || path === 'transColor') push(true);
+      || path === 'transFontSize' || path === 'lyricColor' || path === 'transColor'
+      || path === 'colorDl') push(true);
   });
   // 主窗卸载/刷新:通知小窗关闭(小窗 7s 无消息自关兜底)
   window.addEventListener('pagehide', () => {

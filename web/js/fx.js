@@ -38,6 +38,10 @@ export const FX_DEFAULTS = {
   transFontSize: 16, // 译文字号(px);12–28,默认 16 = 当前句 24px 的 2/3
   lyricColor: '#f6fdff', // 当前句颜色(原写死在 CSS 的 --lyric-primary)
   transColor: '#a8f6ff', // 译文颜色(原写死在 CSS 的 --lyric-secondary)
+  // 自定义配色作用到哪几处(2026-11-19):三个独立开关,可任意组合
+  colorDrawer: false, // 抽屉歌词
+  colorFull: false,   // 全屏歌词
+  colorDl: true,      // 桌词小窗(默认开,保持先前的效果)
 };
 
 /** 归一化规格:[min, max, step];step 只对数字字段取整;bool 字段用 [0,1,1] 占位 */
@@ -64,6 +68,9 @@ export const FX_SPECS = {
   dlFontSize: [24, 64, 2],
   dlOpacity: [0.28, 1, 0.02],
   transFontSize: [12, 28, 1],
+  colorDrawer: [0, 1, 1],
+  colorFull: [0, 1, 1],
+  colorDl: [0, 1, 1],
   // 颜色字段不是数值区间:null = 只占位(setFx 的 `in FX_SPECS` 校验要放行),
   // 归一化由 normalizeField 的字符串分支按 #rrggbb 校验
   lyricColor: null,
