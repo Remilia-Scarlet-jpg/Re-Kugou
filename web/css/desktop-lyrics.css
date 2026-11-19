@@ -71,7 +71,7 @@ body { font-family: system-ui, "Microsoft YaHei", sans-serif; }
    先生 2026-11-06 明确「底下要的是中文小字翻译,不是大字」;无译文时不占位 */
 .dl-trans {
   margin-top: 1px;
-  font-size: 13px;
+  font-size: 16px; /* 2026-11-19 先生反馈「翻译文字太小」:13 → 16px(当前句 24px 的 2/3,仍明显小于当前句) */
   font-weight: 500;
   color: var(--lyric-secondary);
   opacity: .86;
